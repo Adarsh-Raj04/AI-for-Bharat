@@ -8,7 +8,7 @@
 | **Version** | 1.0 |
 | **Date** | February 13, 2026 |
 | **Status** | Draft for Hackathon Submission |
-| **Author** | Architecture Team |
+| **Author** | Adarsh Raj |
 
 ---
 
