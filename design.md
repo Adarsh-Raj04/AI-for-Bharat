@@ -7,7 +7,7 @@
 | **Product** | MedResearch AI — Conversational Research Assistant for Life Sciences |
 | **Version** | 1.0 |
 | **Date** | February 13, 2026 |
-| **Status** | Draft for Hackathon Submission |
+| **Status** | Hackathon Submission |
 | **Author** | Adarsh Raj |
 
 ---
@@ -3545,7 +3545,7 @@ def is_medical_advice_query(query: str) -> bool:
 
 ---
 
-**Document Status**: Draft for Hackathon Submission  
+**Document Status**: Hackathon Submission  
 **Last Updated**: February 13, 2026  
 **Version**: 1.0  
 **Next Review**: Post-Hackathon Feedback Incorporation
