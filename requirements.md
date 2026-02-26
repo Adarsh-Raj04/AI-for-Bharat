@@ -668,10 +668,10 @@ The following features are explicitly excluded from the initial release:
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | 2026-02-13 | Product Team | Initial requirements document for hackathon submission |
+| 1.0 | 2026-02-13 | Adarsh Raj | Initial requirements document for hackathon submission |
 
 ---
 
-**Document Status**: Draft for Hackathon Submission  
+**Document Status**: Hackathon Submission  
 **Last Updated**: February 13, 2026  
 **Next Review**: Post-Hackathon Feedback Incorporation
