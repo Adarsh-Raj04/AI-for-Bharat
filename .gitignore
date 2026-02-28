@@ -46,6 +46,6 @@ logs/
 htmlcov/
 .pytest_cache/
 
-backend
+
 frontend
 pipeline
