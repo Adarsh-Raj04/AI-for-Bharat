@@ -47,5 +47,5 @@ htmlcov/
 .pytest_cache/
 
 
-frontend
+
 pipeline
