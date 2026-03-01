@@ -22,17 +22,21 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image variables
+        run: |
+          echo "REPO=${{ secrets.ECR_REPOSITORY }}" >> $GITHUB_ENV
+          echo "IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}" >> $GITHUB_ENV
 
       - name: Build and Push
         run: |
           docker build -t $REPO:${{ github.sha }} -f backend/Dockerfile backend
-          docker tag ${{ secrets.ECR_REPOSITORY }}:latest \
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
-          docker push \
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
-            
+          docker tag $REPO:${{ github.sha }} $IMAGE_URI
+          docker push $IMAGE_URI
+
       - name: Print image name
         run: |
           echo "Final image:"
-          echo "${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest"
+          echo $IMAGE_URI
