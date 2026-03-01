@@ -1,10 +1,13 @@
 """
 OpenAI Service - OpenAI API integration for GPT models
 """
+
 from openai import OpenAI
 from typing import List, Dict, Any, Iterator
 from app.core.config import settings
 import logging
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 
 logger = logging.getLogger(__name__)
 
@@ -14,16 +17,12 @@ class OpenAIService:
     OpenAI service for GPT models
     Drop-in replacement for ClaudeService
     """
-    
+
     def __init__(self):
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self.model = settings.OPENAI_MODEL
-    
-    def build_prompt(
-        self,
-        query: str,
-        context_documents: List[Dict[str, Any]]
-    ) -> str:
+
+    def build_prompt(self, query: str, context_documents: List[Dict[str, Any]]) -> str:
         """
         Build augmented prompt with retrieved context
         """
@@ -33,15 +32,15 @@ class OpenAIService:
             source_id = doc.get("source_id", "")
             title = doc.get("title", "Untitled")
             text = doc.get("text", "")
-            
+
             context_parts.append(
                 f"[{i}] {source_type.upper()}: {source_id}\n"
                 f"Title: {title}\n"
                 f"Content: {text}\n"
             )
-        
+
         context_text = "\n".join(context_parts)
-        
+
         system_prompt = """You are MedResearch AI, an expert medical research assistant. Your role is to provide accurate, evidence-based answers to medical and pharmaceutical research questions.
 
 INSTRUCTIONS:
@@ -60,86 +59,105 @@ USER QUESTION:
 {query}
 
 Please provide your answer:"""
-        
+
         return system_prompt, user_prompt
-    
+
+    @traceable(name="llm_generation", run_type="llm")
     def generate_response(
         self,
         query: str,
         context_documents: List[Dict[str, Any]],
-        max_tokens: int = 2000
+        max_tokens: int = 2000,
     ) -> Dict[str, Any]:
         """
         Generate response using OpenAI GPT
-        
+
         Args:
             query: User's query
             context_documents: Retrieved context
             max_tokens: Maximum tokens in response
-            
+
         Returns:
             Response dict with text and metadata
         """
         try:
             system_prompt, user_prompt = self.build_prompt(query, context_documents)
-            
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=max_tokens,
-                temperature=0.3
+                temperature=0.3,
             )
-            
+
             text = response.choices[0].message.content
-            
+
+            run_tree = get_current_run_tree()
+            if run_tree:
+                run_tree.add_metadata(
+                    {
+                        "ls_usage": {
+                            "input_tokens": response.usage.prompt_tokens,
+                            "output_tokens": response.usage.completion_tokens,
+                            "total_tokens": response.usage.total_tokens,
+                        }
+                    }
+                )
+
             return {
-                "text": text,
+                "text": text,  # KEEP THIS (pipeline depends on it)
+                "model": response.model,
                 "tokens_used": response.usage.total_tokens,
-                "model": self.model
+                # 👇 THIS is for LangSmith
+                "usage": {
+                    "input_tokens": response.usage.prompt_tokens,
+                    "output_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                },
             }
-            
+
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
             raise
-    
+
     def generate_response_stream(
         self,
         query: str,
         context_documents: List[Dict[str, Any]],
-        max_tokens: int = 2000
+        max_tokens: int = 2000,
     ) -> Iterator[str]:
         """
         Generate streaming response using OpenAI GPT
-        
+
         Args:
             query: User's query
             context_documents: Retrieved context
             max_tokens: Maximum tokens in response
-            
+
         Yields:
             Text chunks as they're generated
         """
         try:
             system_prompt, user_prompt = self.build_prompt(query, context_documents)
-            
+
             stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=max_tokens,
                 temperature=0.3,
-                stream=True
+                stream=True,
             )
-            
+
             for chunk in stream:
                 if chunk.choices[0].delta.content is not None:
                     yield chunk.choices[0].delta.content
-                    
+
         except Exception as e:
             logger.error(f"OpenAI streaming error: {e}")
             raise

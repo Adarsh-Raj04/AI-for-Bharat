@@ -22,16 +22,11 @@ router = APIRouter()
 
 @router.post("/query", response_model=ChatResponse)
 @limiter.limit("20/minute")
-@traceable(
-    name="chat_query_endpoint",
-    run_type="chain",
-    tags=["api", "production", "rag-only"]
-)
 async def query(
     request: Request,
     chat_request: ChatRequest,
     current_user: Dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Process query through RAG pipeline (always uses RAG, no mock fallback)
@@ -39,13 +34,12 @@ async def query(
     """
 
     # Get or create user
-    user = db.query(User).filter(User.auth0_id ==
-                                 current_user["auth0_id"]).first()
+    user = db.query(User).filter(User.auth0_id == current_user["auth0_id"]).first()
     if not user:
         user = User(
             auth0_id=current_user["auth0_id"],
             email=current_user["email"],
-            name=current_user.get("name")
+            name=current_user.get("name"),
         )
         db.add(user)
         db.commit()
@@ -53,16 +47,20 @@ async def query(
 
     # Get or create session
     if chat_request.session_id:
-        session = db.query(ChatSession).filter(
-            ChatSession.id == chat_request.session_id,
-            ChatSession.user_id == user.id
-        ).first()
+        session = (
+            db.query(ChatSession)
+            .filter(
+                ChatSession.id == chat_request.session_id,
+                ChatSession.user_id == user.id,
+            )
+            .first()
+        )
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
     else:
         session = ChatSession(
             user_id=user.id,
-            session_name=f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+            session_name=f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         )
         db.add(session)
         db.commit()
@@ -70,9 +68,7 @@ async def query(
 
     # Save user message
     user_message = Message(
-        session_id=session.id,
-        role="user",
-        content=chat_request.message
+        session_id=session.id, role="user", content=chat_request.message
     )
     db.add(user_message)
     db.commit()
@@ -81,15 +77,10 @@ async def query(
     try:
         rag_pipeline = get_rag_pipeline()
         ai_response = rag_pipeline.process_query(
-            query=chat_request.message,
-            user_id=str(user.id),
-            session_id=str(session.id)
+            query=chat_request.message, user_id=str(user.id), session_id=str(session.id)
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"RAG pipeline error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"RAG pipeline error: {str(e)}")
 
     # Save assistant message
     assistant_message = Message(
@@ -99,7 +90,7 @@ async def query(
         intent=ai_response.get("intent", "general_qa"),
         confidence=ai_response.get("confidence", 0.0),
         citations=ai_response.get("citations", []),
-        tokens_used=ai_response.get("tokens_used", 0)
+        tokens_used=ai_response.get("tokens_used", 0),
     )
     db.add(assistant_message)
 
@@ -121,18 +112,18 @@ async def query(
             "intent": ai_response.get("intent", "general_qa"),
             "sources_used": ai_response.get("sources_used", 0),
             "requires_human_review": ai_response.get("requires_human_review", False),
-            "safety_blocked": ai_response.get("safety_blocked", False)
+            "safety_blocked": ai_response.get("safety_blocked", False),
         },
         metadata={
             "processing_time_ms": ai_response.get("processing_time_ms", 0),
             "tokens_used": ai_response.get("tokens_used", 0),
-            "model": ai_response.get("model", "unknown")
+            "model": ai_response.get("model", "unknown"),
         },
         timestamp=datetime.utcnow(),
         retrieved_documents=ai_response.get("retrieved_documents", []),
         bias_analysis=ai_response.get("bias_analysis"),
         requires_human_review=ai_response.get("requires_human_review", False),
-        safety_blocked=ai_response.get("safety_blocked", False)
+        safety_blocked=ai_response.get("safety_blocked", False),
     )
 
     return response
@@ -140,16 +131,11 @@ async def query(
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
-@traceable(
-    name="chat_endpoint",
-    run_type="chain",
-    tags=["api", "flexible", "rag-or-mock"]
-)
 async def chat(
     request: Request,
     chat_request: ChatRequest,
     current_user: Dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Process chat message and return AI response
@@ -157,13 +143,12 @@ async def chat(
     """
 
     # Get or create user
-    user = db.query(User).filter(User.auth0_id ==
-                                 current_user["auth0_id"]).first()
+    user = db.query(User).filter(User.auth0_id == current_user["auth0_id"]).first()
     if not user:
         user = User(
             auth0_id=current_user["auth0_id"],
             email=current_user["email"],
-            name=current_user.get("name")
+            name=current_user.get("name"),
         )
         db.add(user)
         db.commit()
@@ -171,16 +156,20 @@ async def chat(
 
     # Get or create session
     if chat_request.session_id:
-        session = db.query(ChatSession).filter(
-            ChatSession.id == chat_request.session_id,
-            ChatSession.user_id == user.id
-        ).first()
+        session = (
+            db.query(ChatSession)
+            .filter(
+                ChatSession.id == chat_request.session_id,
+                ChatSession.user_id == user.id,
+            )
+            .first()
+        )
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
     else:
         session = ChatSession(
             user_id=user.id,
-            session_name=f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+            session_name=f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         )
         db.add(session)
         db.commit()
@@ -188,9 +177,7 @@ async def chat(
 
     # Save user message
     user_message = Message(
-        session_id=session.id,
-        role="user",
-        content=chat_request.message
+        session_id=session.id, role="user", content=chat_request.message
     )
     db.add(user_message)
     db.commit()
@@ -202,7 +189,10 @@ async def chat(
             ai_response = rag_pipeline.process_query(
                 query=chat_request.message,
                 user_id=str(user.id),
-                session_id=str(session.id)
+                session_id=str(session.id),
+                langsmith_extra={
+                    "metadata": {"user_id": str(user.id), "session_id": str(session.id)}
+                },
             )
         except Exception as e:
             # Fallback to mock on RAG error
@@ -219,7 +209,7 @@ async def chat(
         intent=ai_response.get("intent", "general_qa"),
         confidence=ai_response.get("confidence", 0.0),
         citations=ai_response.get("citations", []),
-        tokens_used=ai_response.get("tokens_used", 0)
+        tokens_used=ai_response.get("tokens_used", 0),
     )
     db.add(assistant_message)
 
@@ -241,24 +231,23 @@ async def chat(
             "intent": ai_response.get("intent", "general_qa"),
             "sources_used": ai_response.get("sources_used", 0),
             "requires_human_review": ai_response.get("requires_human_review", False),
-            "safety_blocked": ai_response.get("safety_blocked", False)
+            "safety_blocked": ai_response.get("safety_blocked", False),
         },
         metadata={
             "processing_time_ms": ai_response.get("processing_time_ms", 0),
             "tokens_used": ai_response.get("tokens_used", 0),
-            "model": ai_response.get("model", "mock-model")
+            "model": ai_response.get("model", "mock-model"),
         },
         timestamp=datetime.utcnow(),
         retrieved_documents=ai_response.get("retrieved_documents", []),
         bias_analysis=ai_response.get("bias_analysis"),
         requires_human_review=ai_response.get("requires_human_review", False),
-        safety_blocked=ai_response.get("safety_blocked", False)
+        safety_blocked=ai_response.get("safety_blocked", False),
     )
 
     return response
 
 
-@traceable(name="generate_mock_response", run_type="llm", tags=["mock"])
 def generate_mock_response(query: str) -> Dict:
     """
     Generate mock response for testing
@@ -289,7 +278,7 @@ def generate_mock_response(query: str) -> Dict:
                 "source_type": "pubmed",
                 "title": "Efficacy of Drug X in Treatment of Condition Y: A Randomized Trial",
                 "url": "https://pubmed.ncbi.nlm.nih.gov/12345678/",
-                "relevance_score": 0.95
+                "relevance_score": 0.95,
             }
         ]
         confidence = 0.92
@@ -318,7 +307,7 @@ def generate_mock_response(query: str) -> Dict:
                 "source_type": "clinical_trial",
                 "title": "Phase 3 Study of Drug A in Advanced Disease",
                 "url": "https://clinicaltrials.gov/study/NCT04280705",
-                "relevance_score": 0.89
+                "relevance_score": 0.89,
             },
             {
                 "number": 2,
@@ -326,8 +315,8 @@ def generate_mock_response(query: str) -> Dict:
                 "source_type": "clinical_trial",
                 "title": "Efficacy and Safety of Drug B: A Multicenter Trial",
                 "url": "https://clinicaltrials.gov/study/NCT03456789",
-                "relevance_score": 0.87
-            }
+                "relevance_score": 0.87,
+            },
         ]
         confidence = 0.88
 
@@ -357,7 +346,7 @@ The FDA's accelerated approval pathway allows earlier approval of drugs for seri
                 "source_type": "fda",
                 "title": "Accelerated Approval Program Guidance",
                 "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents",
-                "relevance_score": 0.94
+                "relevance_score": 0.94,
             }
         ]
         confidence = 0.91
@@ -388,7 +377,7 @@ This is a mock response from MedResearch AI. In the production version, I would:
         "text": text,
         "citations": citations,
         "confidence": confidence,
-        "intent": intent
+        "intent": intent,
     }
 
 
@@ -398,7 +387,7 @@ async def chat_stream(
     request: Request,
     chat_request: ChatRequest,
     current_user: Dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Process chat message with streaming response
@@ -406,13 +395,12 @@ async def chat_stream(
     """
 
     # Get or create user
-    user = db.query(User).filter(User.auth0_id ==
-                                 current_user["auth0_id"]).first()
+    user = db.query(User).filter(User.auth0_id == current_user["auth0_id"]).first()
     if not user:
         user = User(
             auth0_id=current_user["auth0_id"],
             email=current_user["email"],
-            name=current_user.get("name")
+            name=current_user.get("name"),
         )
         db.add(user)
         db.commit()
@@ -420,16 +408,20 @@ async def chat_stream(
 
     # Get or create session
     if chat_request.session_id:
-        session = db.query(ChatSession).filter(
-            ChatSession.id == chat_request.session_id,
-            ChatSession.user_id == user.id
-        ).first()
+        session = (
+            db.query(ChatSession)
+            .filter(
+                ChatSession.id == chat_request.session_id,
+                ChatSession.user_id == user.id,
+            )
+            .first()
+        )
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
     else:
         session = ChatSession(
             user_id=user.id,
-            session_name=f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+            session_name=f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         )
         db.add(session)
         db.commit()
@@ -437,9 +429,7 @@ async def chat_stream(
 
     # Save user message
     user_message = Message(
-        session_id=session.id,
-        role="user",
-        content=chat_request.message
+        session_id=session.id, role="user", content=chat_request.message
     )
     db.add(user_message)
     db.commit()
@@ -457,7 +447,7 @@ async def chat_stream(
             text = mock_response["text"]
             chunk_size = 50
             for i in range(0, len(text), chunk_size):
-                chunk = text[i:i+chunk_size]
+                chunk = text[i : i + chunk_size]
                 yield f"data: {json.dumps({'type': 'text', 'data': chunk})}\n\n"
 
             # Send metadata
@@ -482,7 +472,7 @@ async def chat_stream(
                     intent="general_qa",
                     confidence=0.0,
                     citations=[],
-                    tokens_used=0
+                    tokens_used=0,
                 )
                 db.add(assistant_message)
 
@@ -502,5 +492,5 @@ async def chat_stream(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )

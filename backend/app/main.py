@@ -6,10 +6,14 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.api.v1.api import api_router
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env file
+
 
 app = FastAPI(
-    title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
+    title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
 )
 
 # Set up rate limiter
@@ -34,16 +38,13 @@ async def root():
     return {
         "message": "MedResearch AI API",
         "version": "1.0.0",
-        "docs": f"{settings.API_V1_PREFIX}/docs"
+        "docs": f"{settings.API_V1_PREFIX}/docs",
     }
 
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "healthy",
-        "service": "medresearch-api"
-    }
+    return {"status": "healthy", "service": "medresearch-api"}
 
 
 @app.get("/test")
@@ -55,8 +56,8 @@ async def test_endpoint():
         "endpoints": {
             "docs": "/docs",
             "health": "/health",
-            "api": settings.API_V1_PREFIX
-        }
+            "api": settings.API_V1_PREFIX,
+        },
     }
 
 
@@ -71,11 +72,11 @@ async def test_mock_ai(query: str = "Summarize PMID 33301246"):
     - 'What is cancer?' - General Q&A intent
     """
     from app.api.v1.endpoints.chat import generate_mock_response
-    
+
     mock_response = generate_mock_response(query)
-    
+
     return {
         "query": query,
         "response": mock_response,
-        "note": "This is a mock response. Real AI integration coming soon!"
+        "note": "This is a mock response. Real AI integration coming soon!",
     }

@@ -7,7 +7,6 @@ from .rag_pipeline import get_rag_pipeline, RAGPipeline
 from .intent_classifier import get_intent_classifier, IntentClassifier, QueryIntent
 from .bias_detector import get_bias_detector, BiasDetector
 from .safety_guardrails import get_safety_guardrails, SafetyGuardrails
-from .observability import get_observability_service, ObservabilityService
 
 __all__ = [
     "get_embedding_service",
@@ -29,6 +28,4 @@ __all__ = [
     "BiasDetector",
     "get_safety_guardrails",
     "SafetyGuardrails",
-    "get_observability_service",
-    "ObservabilityService",
 ]
