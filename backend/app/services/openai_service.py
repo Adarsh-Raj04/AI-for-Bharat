@@ -66,6 +66,7 @@ Please provide your answer:"""
     def generate_response(
         self,
         query: str,
+        chat_history: List[Dict],
         context_documents: List[Dict[str, Any]],
         max_tokens: int = 2000,
     ) -> Dict[str, Any]:
@@ -87,6 +88,7 @@ Please provide your answer:"""
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
+                    *chat_history,
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=max_tokens,

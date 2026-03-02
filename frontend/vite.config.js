@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "https://mps95a2evw.us-east-1.awsapprunner.com",
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
     },

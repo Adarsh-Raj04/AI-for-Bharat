@@ -14,7 +14,9 @@ from app.core.rate_limit import limiter
 from app.schemas.chat import ChatRequest, ChatResponse, MessageResponse, Citation
 from app.models import User, Session as ChatSession, Message
 from app.services.rag_pipeline import get_rag_pipeline
+from app.services.chat_memory import load_chat_history, append_message_to_redis
 from langsmith import traceable
+from app.services.cache_service import get_redis_client
 
 
 router = APIRouter()
@@ -138,12 +140,17 @@ async def chat(
     db: Session = Depends(get_db),
 ):
     """
-    Process chat message and return AI response
-    Uses RAG pipeline if ENABLE_RAG=True, otherwise returns mock response
+    Conversational RAG chat endpoint
+    Redis-first memory + DB persistence
     """
 
+    redis_client = get_redis_client()
+
+    # -----------------------------
     # Get or create user
+    # -----------------------------
     user = db.query(User).filter(User.auth0_id == current_user["auth0_id"]).first()
+
     if not user:
         user = User(
             auth0_id=current_user["auth0_id"],
@@ -151,10 +158,11 @@ async def chat(
             name=current_user.get("name"),
         )
         db.add(user)
-        db.commit()
-        db.refresh(user)
+        db.flush()
 
+    # -----------------------------
     # Get or create session
+    # -----------------------------
     if chat_request.session_id:
         session = (
             db.query(ChatSession)
@@ -172,36 +180,62 @@ async def chat(
             session_name=f"Chat {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         )
         db.add(session)
-        db.commit()
-        db.refresh(session)
+        db.flush()
 
+    # -----------------------------
+    # Load chat history (REDIS FIRST)
+    # -----------------------------
+    chat_history = load_chat_history(
+        redis_client=redis_client,
+        db=db,
+        session_id=session.id,
+    )
+
+    # -----------------------------
     # Save user message
+    # -----------------------------
     user_message = Message(
-        session_id=session.id, role="user", content=chat_request.message
+        session_id=session.id,
+        role="user",
+        content=chat_request.message,
     )
     db.add(user_message)
-    db.commit()
 
-    # Generate AI response using RAG or mock
+    append_message_to_redis(
+        redis_client,
+        session.id,
+        "user",
+        chat_request.message,
+    )
+
+    # -----------------------------
+    # Generate AI response
+    # -----------------------------
     if settings.ENABLE_RAG:
         try:
             rag_pipeline = get_rag_pipeline()
+
             ai_response = rag_pipeline.process_query(
                 query=chat_request.message,
+                chat_history=chat_history,  # ⭐ IMPORTANT
                 user_id=str(user.id),
                 session_id=str(session.id),
                 langsmith_extra={
-                    "metadata": {"user_id": str(user.id), "session_id": str(session.id)}
+                    "metadata": {
+                        "user_id": str(user.id),
+                        "session_id": str(session.id),
+                    }
                 },
             )
         except Exception as e:
-            # Fallback to mock on RAG error
             ai_response = generate_mock_response(chat_request.message)
             ai_response["error"] = str(e)
     else:
         ai_response = generate_mock_response(chat_request.message)
 
+    # -----------------------------
     # Save assistant message
+    # -----------------------------
     assistant_message = Message(
         session_id=session.id,
         role="assistant",
@@ -213,14 +247,26 @@ async def chat(
     )
     db.add(assistant_message)
 
+    append_message_to_redis(
+        redis_client,
+        session.id,
+        "assistant",
+        ai_response["text"],
+    )
+
+    # -----------------------------
     # Update session
+    # -----------------------------
     session.total_messages += 2
     session.updated_at = datetime.utcnow()
 
+    # ⭐ SINGLE COMMIT
     db.commit()
     db.refresh(assistant_message)
 
+    # -----------------------------
     # Build response
+    # -----------------------------
     response = ChatResponse(
         message_id=assistant_message.id,
         session_id=session.id,
@@ -238,7 +284,7 @@ async def chat(
             "tokens_used": ai_response.get("tokens_used", 0),
             "model": ai_response.get("model", "mock-model"),
         },
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(),
         retrieved_documents=ai_response.get("retrieved_documents", []),
         bias_analysis=ai_response.get("bias_analysis"),
         requires_human_review=ai_response.get("requires_human_review", False),

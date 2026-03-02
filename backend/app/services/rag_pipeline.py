@@ -101,6 +101,7 @@ class RAGPipeline:
     def process_query(
         self,
         query: str,
+        chat_history: List[Dict],
         use_cache: bool = True,
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
@@ -120,12 +121,6 @@ class RAGPipeline:
             # Intent
             intent, intent_confidence, _ = self._run_intent(query)
             routing_config = self.intent_classifier.get_routing_config(intent)
-
-            # Cache
-            if use_cache:
-                cached = self.cache_service.get_query_results(query)
-                if cached:
-                    return cached
 
             # Embedding
             query_embedding = self._run_embedding(query, use_cache)
@@ -153,6 +148,7 @@ class RAGPipeline:
             # Generation
             response = self.claude_service.generate_response(
                 query=query,
+                chat_history=chat_history,
                 context_documents=reranked_docs,
                 max_tokens=routing_config["max_tokens"],
             )
