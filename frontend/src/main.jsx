@@ -16,7 +16,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       authorizationParams={{
         redirect_uri: window.location.origin,
         ...(audience && { audience }), // Only include audience if defined
-        scope: "openid profile email"
+        scope: "openid profile email offline_access"
       }}
       cacheLocation="localstorage"  // Cache tokens in localStorage
       useRefreshTokens={true}  // Use refresh tokens

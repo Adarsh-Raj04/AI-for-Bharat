@@ -106,7 +106,8 @@ export default function LoginPage() {
             onClick={() =>
               loginWithRedirect({
                 authorizationParams: {
-                  scope: "openid profile email",
+                  audience: "https://medresearch-ai-api",
+                  scope: "openid profile email offline_access",
                 },
               })
             }
