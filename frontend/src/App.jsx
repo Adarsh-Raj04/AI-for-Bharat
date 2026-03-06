@@ -6,6 +6,7 @@ import ChatPage from './pages/ChatPage'
 import LoginPage from './pages/LoginPage'
 import LoadingSpinner from './components/LoadingSpinner'
 import EmailVerificationRequired from './components/EmailVerificationRequired'
+import { ThemeProvider } from './contexts/ThemeContext'
 import api from './services/api'
 
 function App() {
@@ -60,30 +61,32 @@ function App() {
   }
 
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/"
-          element={
-            isAuthenticated ? (
-              <Layout 
-                currentSessionId={currentSessionId}
-                onSessionSelect={handleSessionSelect}
-                onNewSession={handleNewSession}
-              >
-                <ChatPage 
-                  sessionId={currentSessionId}
-                  onSessionChange={setCurrentSessionId}
-                />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-      </Routes>
-    </Router>
+    <ThemeProvider>
+      <Router>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/"
+            element={
+              isAuthenticated ? (
+                <Layout 
+                  currentSessionId={currentSessionId}
+                  onSessionSelect={handleSessionSelect}
+                  onNewSession={handleNewSession}
+                >
+                  <ChatPage 
+                    sessionId={currentSessionId}
+                    onSessionChange={setCurrentSessionId}
+                  />
+                </Layout>
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+        </Routes>
+      </Router>
+    </ThemeProvider>
   )
 }
 

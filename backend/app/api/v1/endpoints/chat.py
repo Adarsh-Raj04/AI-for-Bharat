@@ -151,6 +151,7 @@ async def chat(
     # -----------------------------
     user = db.query(User).filter(User.auth0_id == current_user["auth0_id"]).first()
 
+
     if not user:
         user = User(
             auth0_id=current_user["auth0_id"],
@@ -223,6 +224,7 @@ async def chat(
                 langsmith_extra={
                     "metadata": {
                         "user_id": str(user.id),
+                        "user_email": str(user.email),
                         "session_id": str(session.id),
                     }
                 },

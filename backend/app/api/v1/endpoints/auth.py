@@ -17,6 +17,7 @@ from app.schemas.auth import (
     DisclaimerRequest,
     DisclaimerResponse,
     UserResponse,
+    UpdateUserRequest,
 )
 
 router = APIRouter()
@@ -51,13 +52,6 @@ async def get_current_user_info(
         db.commit()
         db.refresh(user)
 
-    # Optional auto-sync name changes
-    else:
-        if user.name != current_user.get("username") :
-            user.name = current_user.get("name")
-            if current_user.get("username"):
-                user.name = current_user.get("username")
-            db.commit()
 
     return user
 
@@ -135,3 +129,35 @@ async def check_disclaimer_status(
         "accepted": acceptance is not None,
         "version": CURRENT_VERSION,
     }
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_user_profile(
+    request: UpdateUserRequest,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update user profile (name)
+    """
+
+    user = (
+        db.query(User)
+        .filter(User.auth0_id == current_user["auth0_id"])
+        .first()
+    )
+
+    if not user:
+        user = User(
+            auth0_id=current_user["auth0_id"],
+            email=current_user["email"],
+            name=request.name,
+        )
+        db.add(user)
+    else:
+        user.name = request.name
+    
+    db.commit()
+    db.refresh(user)
+
+    return user

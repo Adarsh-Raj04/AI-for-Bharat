@@ -96,13 +96,13 @@ export default function Sidebar({
   // UI
   // ---------------------------------------
   return (
-    <aside className={`fixed left-0 top-[57px] sm:top-16 h-[calc(100vh-57px)] sm:h-[calc(100vh-4rem)] w-64 bg-white border-r border-gray-200 overflow-y-auto transition-transform duration-300 z-50 ${
+    <aside className={`fixed left-0 top-[57px] sm:top-16 h-[calc(100vh-57px)] sm:h-[calc(100vh-4rem)] w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-y-auto transition-transform duration-300 z-50 ${
       isOpen ? 'translate-x-0' : '-translate-x-full'
     } ${isMobile ? 'shadow-xl' : ''}`}>
       <div className="p-3 sm:p-4">
         <button
           onClick={createNewSession}
-          className="w-full flex items-center justify-center space-x-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors active:scale-95"
+          className="w-full flex items-center justify-center space-x-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-primary-600 dark:bg-primary-700 text-white rounded-lg hover:bg-primary-700 dark:hover:bg-primary-600 transition-colors active:scale-95"
         >
           <svg
             className="w-5 h-5"
@@ -122,14 +122,14 @@ export default function Sidebar({
       </div>
 
       <div className="px-3 sm:px-4 pb-4">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 sm:mb-3">
+        <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 sm:mb-3">
           Chat History
         </h2>
 
         {loading ? (
-          <div className="text-center py-8 text-gray-500">Loading...</div>
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">Loading...</div>
         ) : !sessions?.length ? (
-          <div className="text-center py-8 text-gray-500 text-sm">
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
             No chat history yet
           </div>
         ) : (
@@ -140,8 +140,8 @@ export default function Sidebar({
                 onClick={() => onSessionSelect && onSessionSelect(session.id)}
                 className={`w-full text-left px-3 py-2 rounded-lg transition-colors group ${
                   currentSessionId === session.id
-                    ? "bg-primary-50 border border-primary-200"
-                    : "hover:bg-gray-100"
+                    ? "bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-700"
+                    : "hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -149,20 +149,20 @@ export default function Sidebar({
                     <p
                       className={`text-sm font-medium truncate ${
                         currentSessionId === session.id
-                          ? "text-primary-700"
-                          : "text-gray-900"
+                          ? "text-primary-700 dark:text-primary-300"
+                          : "text-gray-900 dark:text-gray-100"
                       }`}
                     >
                       {session.session_name || "Untitled Chat"}
                     </p>
 
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {session.total_messages ?? 0} messages
                     </p>
                   </div>
 
                   <svg
-                    className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="w-4 h-4 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"

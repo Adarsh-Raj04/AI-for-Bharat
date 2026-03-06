@@ -45,7 +45,7 @@ export default function Layout({ children, currentSessionId, onSessionSelect, on
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition-colors">
       <Navbar onToggleSidebar={handleToggleSidebar} sidebarOpen={sidebarOpen} />
       
       {/* Mobile overlay */}
