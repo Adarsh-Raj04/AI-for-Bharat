@@ -36,6 +36,17 @@ jobs:
           docker tag $REPO:${{ github.sha }} $IMAGE_URI
           docker push $IMAGE_URI
 
+      - name: Deploy to App Runner
+        run: |
+          aws apprunner update-service \
+            --service-arn ${{ secrets.APPRUNNER_SERVICE_ARN }} \
+            --source-configuration '{
+              "ImageRepository": {
+                "ImageIdentifier": "'"$IMAGE_URI"'",
+                "ImageRepositoryType": "ECR"
+              }
+            }'
+
       - name: Print image name
         run: |
           echo "Final image:"
