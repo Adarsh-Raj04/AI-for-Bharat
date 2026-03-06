@@ -24,7 +24,8 @@ export default function Navbar({ onToggleSidebar, sidebarOpen, messages = [], se
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   const [dbUser, setDbUser] = useState(null)
-  const menuRef = useRef(null)
+  const desktopMenuRef = useRef(null)
+  const mobileMenuRef = useRef(null)
 
   useEffect(() => {
     fetchUserProfile()
@@ -32,7 +33,9 @@ export default function Navbar({ onToggleSidebar, sidebarOpen, messages = [], se
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
+      const inDesktop = desktopMenuRef.current && desktopMenuRef.current.contains(event.target)
+      const inMobile = mobileMenuRef.current && mobileMenuRef.current.contains(event.target)
+      if (!inDesktop && !inMobile) {
         setShowMenu(false)
       }
     }
@@ -132,7 +135,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen, messages = [], se
           </button>
 
           {/* Desktop user menu */}
-          <div className="hidden sm:block relative" ref={menuRef}>
+          <div className="hidden sm:block relative" ref={desktopMenuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
               className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
@@ -175,7 +178,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen, messages = [], se
           </div>
 
           {/* Mobile user menu */}
-          <div className="sm:hidden relative" ref={menuRef}>
+          <div className="sm:hidden relative" ref={mobileMenuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
