@@ -39,7 +39,6 @@ async def get_current_user_info(
         .first()
     )
 
-    print(current_user)
 
     # First login → create user
     if not user:

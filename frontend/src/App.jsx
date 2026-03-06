@@ -14,14 +14,13 @@ function App() {
   const [currentSessionId, setCurrentSessionId] = useState(null)
   const [authValidated, setAuthValidated] = useState(false)
   const [emailVerificationRequired, setEmailVerificationRequired] = useState(false)
+  const [messages, setMessages] = useState([])   // ← lifted here
 
-  // Validate authentication with backend on mount and page refresh
   useEffect(() => {
     const validateAuth = async () => {
       if (isAuthenticated) {
         try {
           const token = await getAccessTokenSilently()
-          // Call backend to validate token and get user info
           await api.get('/auth/me', {
             headers: { Authorization: `Bearer ${token}` }
           })
@@ -29,35 +28,33 @@ function App() {
           setEmailVerificationRequired(false)
         } catch (error) {
           console.error('Failed to validate authentication:', error)
-          
-          // Check if it's an email verification error
           if (error.response?.status === 403) {
             setEmailVerificationRequired(true)
           }
-          
           setAuthValidated(false)
         }
       }
     }
-
     validateAuth()
   }, [isAuthenticated, getAccessTokenSilently])
+
+  // Clear messages when session changes
+  const handleSessionSelect = (sessionId) => {
+    setCurrentSessionId(sessionId)
+    setMessages([])
+  }
+
+  const handleNewSession = (sessionId) => {
+    setCurrentSessionId(sessionId)
+    setMessages([])
+  }
 
   if (isLoading || (isAuthenticated && !authValidated && !emailVerificationRequired)) {
     return <LoadingSpinner />
   }
 
-  // Show email verification screen if required
   if (isAuthenticated && emailVerificationRequired) {
     return <EmailVerificationRequired />
-  }
-
-  const handleSessionSelect = (sessionId) => {
-    setCurrentSessionId(sessionId)
-  }
-
-  const handleNewSession = (sessionId) => {
-    setCurrentSessionId(sessionId)
   }
 
   return (
@@ -69,14 +66,17 @@ function App() {
             path="/"
             element={
               isAuthenticated ? (
-                <Layout 
+                <Layout
                   currentSessionId={currentSessionId}
                   onSessionSelect={handleSessionSelect}
                   onNewSession={handleNewSession}
+                  messages={messages}           // ← new
+                  sessionId={currentSessionId}  // ← new
                 >
-                  <ChatPage 
+                  <ChatPage
                     sessionId={currentSessionId}
                     onSessionChange={setCurrentSessionId}
+                    onMessagesChange={setMessages}  // ← new
                   />
                 </Layout>
               ) : (

@@ -1,4 +1,5 @@
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 export default function ChatMessage({ message }) {
   const isUser = message.role === 'user'
@@ -21,7 +22,7 @@ export default function ChatMessage({ message }) {
             {isUser ? (
               <div className="whitespace-pre-wrap text-sm sm:text-base">{message.content}</div>
             ) : (
-              <ReactMarkdown
+              <ReactMarkdown remarkPlugins={[remarkGfm]}
                 components={{
                   // Customize markdown rendering
                   table: ({node, ...props}) => (
@@ -84,7 +85,9 @@ export default function ChatMessage({ message }) {
                         rel="noopener noreferrer"
                         className="block text-xs text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 hover:underline break-words"
                       >
-                        <span className="font-medium">[{citation.number}]</span> {citation.title}
+                        <span className="font-medium">[{citation.number}]</span> {citation.title.length > 120
+  ? citation.title.slice(0,120) + "..."
+  : citation.title}
                         {citation.source_type && (
                           <span className="text-gray-500 dark:text-gray-400 ml-1">
                             ({citation.source_type.toUpperCase()})

@@ -3,12 +3,26 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { useTheme } from '../contexts/ThemeContext'
 import api from '../services/api'
 import ProfileModal from './ProfileModal'
+import ExportModal from './ExportModal'
 
-export default function Navbar({ onToggleSidebar, sidebarOpen }) {
+/**
+ * Navbar
+ *
+ * New props vs original:
+ *   messages  – the messages array from ChatPage (pass as prop from parent)
+ *   sessionId – the current session id (pass as prop from parent)
+ *
+ * If Navbar lives in a parent layout (e.g. App.jsx), lift `messages` and
+ * `sessionId` up to that layout and pass them here AND to ChatPage.
+ *
+ * If Navbar lives inside ChatPage, just pass them directly.
+ */
+export default function Navbar({ onToggleSidebar, sidebarOpen, messages = [], sessionId }) {
   const { user, logout, getAccessTokenSilently } = useAuth0()
   const { isDark, toggleTheme } = useTheme()
   const [showMenu, setShowMenu] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const [dbUser, setDbUser] = useState(null)
   const menuRef = useRef(null)
 
@@ -22,14 +36,8 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
         setShowMenu(false)
       }
     }
-
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
+    if (showMenu) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showMenu])
 
   const fetchUserProfile = async () => {
@@ -44,15 +52,19 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
     }
   }
 
-  const handleUserUpdate = (updatedUser) => {
-    setDbUser(updatedUser)
-  }
+  const handleUserUpdate = (updatedUser) => setDbUser(updatedUser)
 
   const displayName = dbUser?.name || user?.name || user?.nickname || 'User'
+
+  const hasExportableContent = messages.some(
+    (m) => m.role === 'assistant' && !m.error
+  )
 
   return (
     <>
       <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-3 sm:px-4 py-3 flex items-center justify-between relative z-50 transition-colors">
+
+        {/* ── Left: sidebar toggle + logo ── */}
         <div className="flex items-center space-x-2 sm:space-x-4">
           <button
             onClick={onToggleSidebar}
@@ -69,7 +81,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
               </svg>
             )}
           </button>
-          
+
           <div className="flex items-center space-x-2">
             <svg className="w-6 h-6 sm:w-8 sm:h-8 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -79,8 +91,29 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 sm:space-x-4">
-          {/* Theme Toggle Button */}
+        {/* ── Right: Export + Theme + User menu ── */}
+        <div className="flex items-center space-x-1 sm:space-x-2">
+
+          {/* Export button */}
+          <button
+            onClick={() => setShowExportModal(true)}
+            disabled={!hasExportableContent}
+            title={hasExportableContent ? 'Export conversation' : 'No content to export yet'}
+            className={`
+              flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all
+              ${hasExportableContent
+                ? 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-primary-600 dark:hover:text-primary-400 active:scale-95'
+                : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+              }
+            `}
+          >
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span className="hidden sm:inline">Export</span>
+          </button>
+
+          {/* Theme toggle */}
           <button
             type="button"
             onClick={toggleTheme}
@@ -98,24 +131,21 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
             )}
           </button>
 
-          {/* Desktop menu */}
+          {/* Desktop user menu */}
           <div className="hidden sm:block relative" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
               className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
             >
               <span>{displayName}</span>
-              <svg 
-                className={`w-4 h-4 transition-transform ${showMenu ? 'rotate-180' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
+              <svg
+                className={`w-4 h-4 transition-transform ${showMenu ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
 
-            {/* Desktop dropdown menu */}
             {showMenu && (
               <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2">
                 <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
@@ -123,10 +153,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user?.email}</p>
                 </div>
                 <button
-                  onClick={() => {
-                    setShowMenu(false)
-                    setShowProfileModal(true)
-                  }}
+                  onClick={() => { setShowMenu(false); setShowProfileModal(true) }}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center space-x-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -135,10 +162,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
                   <span>Edit Profile</span>
                 </button>
                 <button
-                  onClick={() => {
-                    setShowMenu(false)
-                    logout({ logoutParams: { returnTo: window.location.origin } })
-                  }}
+                  onClick={() => { setShowMenu(false); logout({ logoutParams: { returnTo: window.location.origin } }) }}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center space-x-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,7 +174,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
             )}
           </div>
 
-          {/* Mobile menu */}
+          {/* Mobile user menu */}
           <div className="sm:hidden relative" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
@@ -162,7 +186,6 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
               </svg>
             </button>
 
-            {/* Mobile dropdown menu */}
             {showMenu && (
               <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2">
                 <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
@@ -170,10 +193,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user?.email}</p>
                 </div>
                 <button
-                  onClick={() => {
-                    setShowMenu(false)
-                    setShowProfileModal(true)
-                  }}
+                  onClick={() => { setShowMenu(false); setShowProfileModal(true) }}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center space-x-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -182,10 +202,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
                   <span>Edit Profile</span>
                 </button>
                 <button
-                  onClick={() => {
-                    setShowMenu(false)
-                    logout({ logoutParams: { returnTo: window.location.origin } })
-                  }}
+                  onClick={() => { setShowMenu(false); logout({ logoutParams: { returnTo: window.location.origin } }) }}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center space-x-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -196,6 +213,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
               </div>
             )}
           </div>
+
         </div>
       </nav>
 
@@ -204,6 +222,15 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
         onClose={() => setShowProfileModal(false)}
         currentUser={dbUser}
         onUserUpdate={handleUserUpdate}
+      />
+
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        messages={messages}
+        sessionId={sessionId}
+        getToken={getAccessTokenSilently}
+        apiInstance={api}
       />
     </>
   )

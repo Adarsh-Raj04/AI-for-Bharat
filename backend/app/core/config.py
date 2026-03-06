@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGCHAIN_TRACING_V2: bool = False
 
+    HF_TOKEN: str = ""
+
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 20
 
