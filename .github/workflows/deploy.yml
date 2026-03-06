@@ -1,4 +1,4 @@
-name: Deploy to ECR
+name: Deploy to ECR and App Runner
 
 on:
   push:
@@ -14,29 +14,48 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS
+      # Configure AWS
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # Login to ECR
       - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Set environment variables
       - name: Set image variables
         run: |
           echo "REPO=${{ secrets.ECR_REPOSITORY }}" >> $GITHUB_ENV
           echo "IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}" >> $GITHUB_ENV
 
-      - name: Build and Push
+      # Build and push image
+      - name: Build and Push Docker Image
         run: |
           docker build -t $REPO:${{ github.sha }} -f backend/Dockerfile backend
           docker tag $REPO:${{ github.sha }} $IMAGE_URI
           docker push $IMAGE_URI
 
-      - name: Print image name
+      # Deploy to App Runner
+      - name: Deploy to App Runner
         run: |
-          echo "Final image:"
+          SERVICE_ARN="arn:aws:apprunner:us-east-1:394139051632:service/hackathon-backend/b98408c3bc4641c19f0c785dd9a72d7e"
+
+          aws apprunner update-service \
+            --service-arn $SERVICE_ARN \
+            --source-configuration "{
+              \"ImageRepository\": {
+                \"ImageIdentifier\": \"$IMAGE_URI\",
+                \"ImageRepositoryType\": \"ECR\"
+              }
+            }"
+
+      # Print image URI
+      - name: Print image URI
+        run: |
+          echo "Deployment image:"
           echo $IMAGE_URI
