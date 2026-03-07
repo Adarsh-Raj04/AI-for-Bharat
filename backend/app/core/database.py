@@ -4,7 +4,14 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
 # Create sync engine
-engine = create_engine(settings.DATABASE_URL, echo=False)
+engine = create_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    pool_size=5,
+    max_overflow=10,
+)
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

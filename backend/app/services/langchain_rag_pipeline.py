@@ -31,17 +31,21 @@ from app.services.intent_router import get_intent_router
 from app.services.summarization_chain import get_summarization_chain
 from app.services.comparison_chain import get_comparison_chain
 from app.services.regulatory_chain import get_regulatory_chain
+
 # Phase 2 Enhanced Services
 from app.services.langchain_memory import get_conversational_memory
 from app.services.hybrid_retriever import get_hybrid_retriever
 from app.services.citation_tracker import get_citation_tracker
 from app.services.cross_encoder_reranker import get_cross_encoder_reranker
+from app.services.timeline_service import build_research_timeline
+from app.services.diversity_filter import apply_diversity_filter
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _format_docs(docs: List[Document]) -> str:
     """Serialise retrieved documents into numbered context blocks."""
@@ -76,6 +80,7 @@ def _docs_to_rerank_payload(docs: List[Document]) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
+
 
 class LangChainRAGPipeline:
     """
@@ -121,15 +126,15 @@ class LangChainRAGPipeline:
         self.intent_classifier = get_intent_classifier()
         self.bias_detector = get_bias_detector()
         self.safety_guardrails = get_safety_guardrails()
-        
+
         # Phase 2: Intent routing and summarization
         self.intent_router = None  # Initialized after LLM
         self.summarization_chain = None  # Initialized after LLM
-        
+
         # Phase 3: Specialized chains
         self.comparison_chain = None  # Initialized after LLM
         self.regulatory_chain = None  # Initialized after LLM
-        
+
         # Phase 2 Enhanced Services (initialized early, some need LLM later)
         self.memory = None  # Initialized after LLM
         self.citation_tracker = get_citation_tracker()
@@ -181,15 +186,20 @@ class LangChainRAGPipeline:
                 embedding=embeddings,
                 text_key="text",
             )
-            
+
             # Phase 2: Initialize hybrid retriever after vectorstore
             from app.services.pinecone_service import get_pinecone_service
             from app.services.embedding_service import get_embedding_service
+
             pinecone_service = get_pinecone_service()
             embedding_service = get_embedding_service()
-            self.hybrid_retriever = get_hybrid_retriever(pinecone_service, embedding_service)
-            
-            logger.info("Initialized Pinecone vector store with LangChain and hybrid retriever")
+            self.hybrid_retriever = get_hybrid_retriever(
+                pinecone_service, embedding_service
+            )
+
+            logger.info(
+                "Initialized Pinecone vector store with LangChain and hybrid retriever"
+            )
         except Exception:
             logger.exception("Failed to initialize vector store")
             raise
@@ -230,19 +240,24 @@ class LangChainRAGPipeline:
                         "2. Consider the conversation history for context and "
                         "coreference resolution\n"
                         "3. Cite sources using [number] notation (e.g., [1], [2])",
-                    ).replace(
+                    )
+                    .replace(
                         "3. If the context",
                         "4. If the context",
-                    ).replace(
+                    )
+                    .replace(
                         "4. Use clear",
                         "5. Use clear",
-                    ).replace(
+                    )
+                    .replace(
                         "5. Format",
                         "6. Format",
-                    ).replace(
+                    )
+                    .replace(
                         "6. Include",
                         "7. Include",  # keep numbering consistent
-                    ).replace(
+                    )
+                    .replace(
                         "7. Be concise",
                         "8. Be concise",
                     ),
@@ -258,72 +273,137 @@ class LangChainRAGPipeline:
         # Phase 2: Initialize intent router and summarization chain
         self.intent_router = get_intent_router(self.llm)
         self.summarization_chain = get_summarization_chain(self.llm)
-        
+
         # Phase 3: Initialize specialized chains
         self.comparison_chain = get_comparison_chain(self.llm)
         self.regulatory_chain = get_regulatory_chain(self.llm)
-        
+
         # Phase 2: Initialize conversational memory with LLM
         self.memory = get_conversational_memory(self.llm)
-        
-        logger.info("Chain initialization deferred to query time, Phase 2 & 3 features initialized (including memory)")
+
+        logger.info(
+            "Chain initialization deferred to query time, Phase 2 & 3 features initialized (including memory)"
+        )
 
     # ------------------------------------------------------------------
     # Internal utilities
     # ------------------------------------------------------------------
 
-    def _retrieve_documents(self, query: str, top_k: int = None, use_enhanced: bool = True) -> List[Document]:
+    def _fetch_by_pmid(self, pmid: str) -> list:
         """
-        Retrieve documents with Phase 2 enhanced hybrid retrieval and cross-encoder reranking.
-        Falls back to legacy method if enhanced retrieval fails.
-        
-        Args:
-            query: User query
-            top_k: Number of documents to retrieve
-            use_enhanced: Whether to use Phase 2 enhanced retrieval
+        Fetch all chunks for a specific PMID directly via Pinecone metadata filter.
+        Returns a list of reranker-compatible dicts, or [] if not found.
         """
+        try:
+            # Pinecone metadata filter query — no embedding needed
+            # We use a zero vector + filter to do a metadata-only lookup
+            print("Fetching by PMID from Pinecone metadata filter:", pmid)
+            import numpy as np
+
+            dummy_vector = [0.0] * 1536  # match your embedding dimension
+
+            results = self.pinecone_index.query(
+                vector=dummy_vector,
+                top_k=10,
+                filter={
+                    "$or": [
+                        {"pmid": {"$eq": pmid}},
+                        {"source_id": {"$eq": f"PMID:{pmid}"}},
+                    ]
+                },
+                include_metadata=True,
+            )
+
+            if not results.matches:
+                logger.warning("PMID:%s — no matches in Pinecone metadata filter", pmid)
+                return []
+
+            # Convert to reranker-compatible flat dicts
+            docs = []
+            for match in results.matches:
+                meta = match.metadata or {}
+                docs.append(
+                    {
+                        "text": meta.get("text", ""),
+                        "score": match.score,
+                        "relevance_score": match.score,
+                        "source_type": meta.get("source_type", "pubmed"),
+                        "source_id": meta.get("source_id", f"PMID:{pmid}"),
+                        "pmid": meta.get("pmid", pmid),
+                        "title": meta.get("title", "Untitled"),
+                        "url": meta.get(
+                            "url", f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                        ),
+                        "publication_date": meta.get("publication_date", ""),
+                        "journal": meta.get("journal", ""),
+                        "authors": meta.get("authors", ""),
+                        "metadata": meta,
+                    }
+                )
+
+            logger.info(
+                "PMID:%s — fetched %d chunks via metadata filter", pmid, len(docs)
+            )
+            return docs
+
+        except Exception as e:
+            logger.error("PMID metadata fetch failed for %s: %s", pmid, e)
+            return []
+
+    def _retrieve_documents(
+        self,
+        query: str,
+        top_k: int = None,
+        use_enhanced: bool = True,
+        source_filter: str = None,  # ← NEW: source_id string e.g. "PMID:41785024"
+    ) -> List[Document]:
         if top_k is None:
             top_k = settings.TOP_K_RESULTS
-        
+
+        # Build Pinecone filter dict if source_filter provided
+        filter_dict = {"source_id": {"$eq": source_filter}} if source_filter else None
+
         try:
-            # Generate embedding
             query_embedding = self.embeddings.embed_query(query)
-            
+
             if use_enhanced and self.hybrid_retriever:
-                # Phase 2: Enhanced hybrid retrieval with RRF
                 results = self.hybrid_retriever.hybrid_search(
                     query=query,
                     query_embedding=query_embedding,
-                    top_k=top_k * 2,  # Get more for cross-encoder reranking
-                    use_rrf=True
+                    top_k=top_k * 2,
+                    use_rrf=True,
+                    filter_dict=filter_dict,  # ← NEW
                 )
-                
+
                 if results:
-                    # Phase 2: Cross-encoder reranking
                     reranked_results = self.cross_encoder_reranker.rerank(
                         query=query,
                         documents=results,
                         top_k=top_k,
-                        use_cross_encoder=True
+                        use_cross_encoder=True,
                     )
-                    
-                    # Convert to LangChain Documents
-                    documents = self.hybrid_retriever.to_langchain_documents(reranked_results)
-                    
-                    logger.info(f"Retrieved {len(documents)} documents (Phase 2: hybrid + cross-encoder)")
+                    documents = self.hybrid_retriever.to_langchain_documents(
+                        reranked_results
+                    )
+                    logger.info(
+                        "Retrieved %d documents (hybrid + cross-encoder, filter=%s)",
+                        len(documents),
+                        source_filter,
+                    )
                     return documents
-            
-            # Fallback to legacy method
+
+            # Fallback legacy path
             from app.services.pinecone_service import get_pinecone_service
+
             pinecone_service = get_pinecone_service()
-            
+
             docs_dict = pinecone_service.hybrid_search(
                 query_embedding=query_embedding,
                 query_text=query,
-                top_k=top_k
+                top_k=top_k,
+                filter_dict=filter_dict,  # ← NEW (pinecone_service already accepts this)
             )
-            
-            # Convert to LangChain Documents
+
             documents = []
             for doc_dict in docs_dict:
                 metadata = {
@@ -333,21 +413,22 @@ class LangChainRAGPipeline:
                     "source_id": doc_dict.get("source_id", ""),
                     "title": doc_dict.get("title", "Untitled"),
                     "url": doc_dict.get("url", ""),
+                    "publication_date": doc_dict.get("publication_date", ""),
                 }
                 if "metadata" in doc_dict:
                     metadata.update(doc_dict["metadata"])
-                
-                doc = Document(
-                    page_content=doc_dict.get("text", ""),
-                    metadata=metadata
-                )
+                doc = Document(page_content=doc_dict.get("text", ""), metadata=metadata)
                 documents.append(doc)
-            
-            logger.info(f"Retrieved {len(documents)} documents (legacy fallback)")
+
+            logger.info(
+                "Retrieved %d documents (legacy fallback, filter=%s)",
+                len(documents),
+                source_filter,
+            )
             return documents
-            
+
         except Exception as e:
-            logger.error(f"Document retrieval failed: {e}", exc_info=True)
+            logger.error("Document retrieval failed: %s", e, exc_info=True)
             return []
 
     @cached_property
@@ -365,17 +446,18 @@ class LangChainRAGPipeline:
         """Format chat history with Phase 2 memory management"""
         if not chat_history:
             return []
-        
+
         # Phase 2: Use conversational memory to manage context window
         if self.memory:
             managed_history = self.memory.manage_context_window(
-                chat_history,
-                max_tokens=4000
+                chat_history, max_tokens=4000
             )
             formatted = self.memory.format_messages_for_langchain(managed_history)
-            logger.info(f"Formatted {len(formatted)} messages (managed from {len(chat_history)} original)")
+            logger.info(
+                f"Formatted {len(formatted)} messages (managed from {len(chat_history)} original)"
+            )
             return formatted
-        
+
         # Fallback to simple formatting
         messages = []
         for msg in chat_history:
@@ -387,39 +469,57 @@ class LangChainRAGPipeline:
                 messages.append(AIMessage(content=content))
         return messages
 
-    def _build_citations(self, documents: List[Dict[str, Any]], response_text: str = None) -> List[Dict[str, Any]]:
-        """Build citation list from reranked documents with Phase 2 enhanced tracking"""
+    def _build_citations(
+        self, documents: List[Dict[str, Any]], response_text: str = None
+    ) -> List[Dict[str, Any]]:
         citations = []
-        for i, doc in enumerate(documents, 1):
-            # Handle both dict and Document objects
+        seen_source_ids = set()
+
+        for doc in documents:
+            # ── Extract fields (works for both flat reranker dicts and LangChain Documents) ──
             if isinstance(doc, dict):
-                citation = {
-                    "number": i,
-                    "title": doc.get("title", "Untitled"),
-                    "url": doc.get("url", ""),
-                    "relevance_score": doc.get("relevance_score", 0.0),
-                    "source_type": doc.get("source_type", "unknown"),
-                    "source_id": doc.get("source_id", ""),
-                }
+                source_id = doc.get("source_id", "")
+                title = doc.get("title", "Untitled")
+                url = doc.get("url", "")
+                relevance = doc.get("relevance_score", 0.0)
+                source_type = doc.get("source_type", "unknown")
+                pub_date = doc.get("publication_date") or None
             else:
-                # Document object
-                metadata = getattr(doc, 'metadata', {})
-                citation = {
-                    "number": i,
-                    "title": metadata.get("title", "Untitled"),
-                    "url": metadata.get("url", ""),
-                    "relevance_score": metadata.get("relevance_score", 0.0),
-                    "source_type": metadata.get("source_type", "unknown"),
-                    "source_id": metadata.get("source_id", ""),
+                metadata = getattr(doc, "metadata", {})
+                source_id = metadata.get("source_id", "")
+                title = metadata.get("title", "Untitled")
+                url = metadata.get("url", "")
+                relevance = getattr(doc, "relevance_score", None) or metadata.get(
+                    "relevance_score", 0.0
+                )
+                source_type = metadata.get("source_type", "unknown")
+                pub_date = metadata.get("publication_date") or None
+
+            # ── Dedup by source_id — keep only the highest-ranked chunk per source ──
+            dedup_key = source_id or title  # fall back to title if no source_id
+            if dedup_key and dedup_key in seen_source_ids:
+                continue
+            seen_source_ids.add(dedup_key)
+
+            citations.append(
+                {
+                    "number": len(citations) + 1,  # renumber after dedup
+                    "title": title,
+                    "url": url,
+                    "relevance_score": relevance,
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    "publication_date": pub_date,
+                    "times_cited": 0,
+                    "is_cited": False,
                 }
-            
-            citations.append(citation)
-        
-        # Phase 2: Enrich citations with usage tracking
+            )
+
+        # Enrich with usage tracking if available
         if response_text and self.citation_tracker:
             citations = self.citation_tracker.enrich_citations(citations, response_text)
-            logger.debug(f"Enriched {len(citations)} citations with usage tracking")
-        
+            logger.debug("Enriched %d citations with usage tracking", len(citations))
+
         return citations
 
     def _calculate_confidence_score(
@@ -434,7 +534,9 @@ class LangChainRAGPipeline:
         top_docs = documents[:3]
         relevance = sum(d.get("relevance_score", 0.0) for d in top_docs) / len(top_docs)
         bias_penalty = bias_analysis.get("bias_score", 0.0) * 0.2
-        confidence = relevance * 0.5 + intent_confidence * 0.3 + (1 - bias_penalty) * 0.2
+        confidence = (
+            relevance * 0.5 + intent_confidence * 0.3 + (1 - bias_penalty) * 0.2
+        )
         return max(0.0, min(0.95, confidence))
 
     def _fallback_response(
@@ -463,11 +565,12 @@ class LangChainRAGPipeline:
 
     def process_query(
         self,
-        query: str,
-        chat_history: Optional[List[Dict]] = None,
-        use_cache: bool = True,  # noqa: ARG002
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        query,
+        chat_history=None,
+        use_cache=True,
+        user_id=None,
+        session_id=None,
+        source_filter=None,
     ) -> Dict[str, Any]:
         """
         Process a query through the LangChain RAG pipeline.
@@ -487,7 +590,9 @@ class LangChainRAGPipeline:
 
         try:
             # Safety check
-            is_safe, block_reason, _safety_meta = self.safety_guardrails.check_query(query)
+            is_safe, block_reason, _safety_meta = self.safety_guardrails.check_query(
+                query
+            )
             if not is_safe:
                 logger.warning("Query blocked: %s", block_reason)
                 return self._fallback_response(query, reason="blocked")
@@ -497,8 +602,12 @@ class LangChainRAGPipeline:
             routing_config = self.intent_classifier.get_routing_config(intent)
 
             # Retrieve documents (single call, no duplicate traces)
-            retrieved_docs = self._retrieve_documents(query, top_k=routing_config.get("top_k", settings.TOP_K_RESULTS))
-            
+            retrieved_docs = self._retrieve_documents(
+                query,
+                top_k=routing_config.get("top_k", settings.TOP_K_RESULTS),
+                source_filter=source_filter,
+            )
+
             if not retrieved_docs:
                 logger.warning("No documents retrieved")
                 return self._fallback_response(query, reason="no_documents")
@@ -510,30 +619,54 @@ class LangChainRAGPipeline:
                 top_k=routing_config["rerank_top_k"],
             )
 
+            # Diversity filter
+            reranked_docs = apply_diversity_filter(
+                documents=reranked_docs,
+                max_chunks_per_source=2,
+                target_k=routing_config["rerank_top_k"],
+            )
+
             # Bias analysis
             bias_analysis = self.bias_detector.analyze_sources(reranked_docs, query)
 
             # Phase 2 & 3: Route to specialized chains based on intent
             formatted_context = _format_docs(retrieved_docs)
-            
+
             if intent == QueryIntent.SUMMARIZATION:
-                # Summarization chain
                 pmid = self.summarization_chain.extract_pmid_from_query(query)
                 if pmid:
-                    response_text = self.summarization_chain.summarize_by_pmid(pmid, reranked_docs)
+                    # Direct metadata fetch — bypasses semantic search for exact PMID lookup
+                    pmid_docs = self._fetch_by_pmid(pmid)
+                    if pmid_docs:
+                        response_text = self.summarization_chain.summarize_by_pmid(
+                            pmid, pmid_docs
+                        )
+                    else:
+                        # Fallback: try reranked docs in case it was retrieved semantically
+                        response_text = self.summarization_chain.summarize_by_pmid(
+                            pmid, reranked_docs
+                        )
                 elif len(reranked_docs) == 1:
-                    response_text = self.summarization_chain.summarize_single_document(reranked_docs[0])
+                    response_text = self.summarization_chain.summarize_single_document(
+                        reranked_docs[0]
+                    )
                 else:
-                    response_text = self.summarization_chain.summarize_multiple_documents(reranked_docs)
-                    
+                    response_text = (
+                        self.summarization_chain.summarize_multiple_documents(
+                            reranked_docs
+                        )
+                    )
+
             elif intent == QueryIntent.COMPARISON:
                 # Phase 3: Comparison chain
                 response_text = self.comparison_chain.compare(query, formatted_context)
-                
+
             elif intent == QueryIntent.REGULATORY_COMPLIANCE:
                 # Phase 3: Regulatory chain
-                response_text = self.regulatory_chain.get_regulatory_info(query, formatted_context)
-                
+                response_text = self.regulatory_chain.get_regulatory_info(
+                    query, formatted_context
+                )
+
             else:
                 # Use intent-routed chain for other intents
                 if chat_history:
@@ -551,8 +684,10 @@ class LangChainRAGPipeline:
                     )
                 else:
                     # Use intent-specific chain
-                    chain = self.intent_router.build_routed_chain(intent, formatted_context)
-                
+                    chain = self.intent_router.build_routed_chain(
+                        intent, formatted_context
+                    )
+
                 # Generate response
                 response_text = chain.invoke(query)
 
@@ -561,17 +696,23 @@ class LangChainRAGPipeline:
             confidence = self._calculate_confidence_score(
                 reranked_docs, intent_confidence, bias_analysis
             )
-            
+
             # Phase 2: Generate citation report
             citation_report = None
             if self.citation_tracker:
                 citation_report = self.citation_tracker.generate_citation_report(
                     response_text, citations
                 )
-                logger.info(f"Citation accuracy: {citation_report['validation']['accuracy']:.2%}")
+                logger.info(
+                    f"Citation accuracy: {citation_report['validation']['accuracy']:.2%}"
+                )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.info("Query processed successfully in %dms", elapsed_ms)
+
+            # ------- Phase 2: Build research timeline from citations -------
+
+            timeline = build_research_timeline(citations)
 
             result = {
                 "text": response_text,
@@ -581,12 +722,13 @@ class LangChainRAGPipeline:
                 "model": self._get_model_name(),
                 "processing_time_ms": elapsed_ms,
                 "bias_analysis": bias_analysis,
+                "timeline": timeline,
             }
-            
+
             # Add citation report if available
             if citation_report:
                 result["citation_report"] = citation_report
-            
+
             return result
 
         except Exception:
@@ -596,82 +738,168 @@ class LangChainRAGPipeline:
     def process_query_stream(
         self,
         query: str,
-        chat_history: Optional[List[Dict]] = None,
-        use_cache: bool = True,  # noqa: ARG002
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-    ) -> Iterator[Dict[str, Any]]:
-        """
-        Process a query with a streaming response.
+        chat_history=None,
+        use_cache: bool = True,
+        user_id=None,
+        session_id=None,
+        source_filter=None,  # ← NEW: source_id string e.g. "PMID:41785024"
+    ):
+        import time
 
-        Yields dicts with keys ``type`` (``"citations"``, ``"text"``, ``"error"``)
-        and ``data``.
-        """
+        start_time = time.time()
         chat_history = chat_history or []
 
         try:
-            # Safety check
-            is_safe, _block_reason, _safety_meta = self.safety_guardrails.check_query(query)
+            # ── Safety check ──────────────────────────────────────────────
+            is_safe, _block_reason, _safety_meta = self.safety_guardrails.check_query(
+                query
+            )
             if not is_safe:
                 yield {"type": "error", "data": "Query blocked by safety guardrails"}
                 return
 
-            # Intent classification
-            intent, _intent_confidence, _ = self.intent_classifier.classify(query)
+            # ── Intent classification ─────────────────────────────────────
+            intent, intent_confidence, _ = self.intent_classifier.classify(query)
+            routing_config = self.intent_classifier.get_routing_config(intent)
+            logger.info(
+                "STREAM INTENT: %s (confidence %.2f) | query: '%s'",
+                intent,
+                intent_confidence,
+                query[:80],
+            )
 
-            # Retrieve documents (single call)
-            retrieved_docs = self._retrieve_documents(query, top_k=settings.TOP_K_RESULTS)
-            
+            # ── Retrieve ──────────────────────────────────────────────────
+            retrieved_docs = self._retrieve_documents(
+                query,
+                top_k=routing_config.get("top_k", settings.TOP_K_RESULTS),
+                source_filter=source_filter,
+            )
             if not retrieved_docs:
                 yield {"type": "error", "data": "No relevant documents found"}
                 return
 
-            # Rerank
+            # ── Rerank + diversity filter ─────────────────────────────────
             reranked_docs = self.reranker_service.rerank(
                 query=query,
                 documents=_docs_to_rerank_payload(retrieved_docs),
-                top_k=5,
+                top_k=routing_config["rerank_top_k"],
+            )
+            reranked_docs = apply_diversity_filter(
+                documents=reranked_docs,
+                max_chunks_per_source=2,
+                target_k=routing_config["rerank_top_k"],
             )
 
-            # Send citations first
-            yield {"type": "citations", "data": self._build_citations(reranked_docs)}
+            bias_analysis = self.bias_detector.analyze_sources(reranked_docs, query)
+            citations = self._build_citations(reranked_docs)
+            confidence = self._calculate_confidence_score(
+                reranked_docs, intent_confidence, bias_analysis
+            )
 
-            # Build and stream the appropriate chain
-            if chat_history:
-                formatted_history = self._format_chat_history(chat_history)
-                chain = (
-                    {
-                        "context": lambda _: _format_docs(retrieved_docs),
-                        "chat_history": lambda _: formatted_history,
-                        "question": RunnablePassthrough(),
-                    }
-                    | self.conversational_prompt
-                    | self.llm
-                )
-            else:
-                chain = (
-                    {
-                        "context": lambda _: _format_docs(retrieved_docs),
-                        "question": RunnablePassthrough(),
-                    }
-                    | self.rag_prompt
-                    | self.llm
-                )
+            formatted_context = _format_docs(retrieved_docs)
 
-            for chunk in chain.stream(query):
-                # Handle different chunk types from LangChain
-                if hasattr(chunk, 'content'):
-                    # AIMessageChunk with content attribute
-                    if chunk.content:
-                        yield {"type": "text", "data": chunk.content}
-                elif isinstance(chunk, str):
-                    # String chunk
-                    yield {"type": "text", "data": chunk}
+            # ── Intent routing ────────────────────────────────────────────
+            if intent == QueryIntent.SUMMARIZATION:
+                # Summarization chains use invoke() not stream() —
+                # yield the full result as one text chunk
+                pmid = self.summarization_chain.extract_pmid_from_query(query)
+                if pmid:
+                    pmid_docs = self._fetch_by_pmid(pmid)
+                    if pmid_docs:
+                        logger.info(
+                            "PMID fetch returned %d docs for %s", len(pmid_docs), pmid
+                        )
+                        # Override citations with the actual fetched doc, not semantic results
+                        citations = self._build_citations(pmid_docs)
+                        yield {"type": "citations", "data": citations}
+                        response_text = self.summarization_chain.summarize_by_pmid(
+                            pmid, pmid_docs
+                        )
+                    else:
+                        logger.warning(
+                            "PMID fetch empty, falling back to reranked docs"
+                        )
+                        yield {"type": "citations", "data": citations}
+                        response_text = self.summarization_chain.summarize_by_pmid(
+                            pmid, reranked_docs
+                        )
+                elif len(reranked_docs) == 1:
+                    response_text = self.summarization_chain.summarize_single_document(
+                        reranked_docs[0]
+                    )
                 else:
-                    # Other chunk types - try to extract content
-                    content = str(chunk) if chunk else ""
-                    if content:
-                        yield {"type": "text", "data": content}
+                    yield {"type": "citations", "data": citations}
+                    response_text = (
+                        self.summarization_chain.summarize_multiple_documents(
+                            reranked_docs
+                        )
+                    )
+                yield {"type": "text", "data": response_text}
+
+            elif intent == QueryIntent.COMPARISON:
+                yield {"type": "citations", "data": citations}
+                response_text = self.comparison_chain.compare(query, formatted_context)
+                yield {"type": "text", "data": response_text}
+
+            elif intent == QueryIntent.REGULATORY_COMPLIANCE:
+                yield {"type": "citations", "data": citations}
+                response_text = self.regulatory_chain.get_regulatory_info(
+                    query, formatted_context
+                )
+                yield {"type": "text", "data": response_text}
+
+            else:
+                # General QA — send citations before streaming starts
+                yield {"type": "citations", "data": citations}
+                # Stream token-by-token for general QA, factual, clinical trial etc.
+                if chat_history:
+                    formatted_history = self._format_chat_history(chat_history)
+                    chain = (
+                        {
+                            "context": lambda _: formatted_context,
+                            "chat_history": lambda _: formatted_history,
+                            "question": RunnablePassthrough(),
+                        }
+                        | self.conversational_prompt
+                        | self.llm
+                    )
+                else:
+                    chain = self.intent_router.build_routed_chain(
+                        intent, formatted_context
+                    )
+                    # build_routed_chain adds StrOutputParser — rebuild without it for streaming
+                    prompt = self.intent_router.get_prompt_for_intent(intent)
+                    chain = (
+                        {
+                            "context": lambda _: formatted_context,
+                            "question": RunnablePassthrough(),
+                        }
+                        | prompt
+                        | self.llm
+                    )
+
+                for chunk in chain.stream(query):
+                    if hasattr(chunk, "content"):
+                        if chunk.content:
+                            yield {"type": "text", "data": chunk.content}
+                    elif isinstance(chunk, str):
+                        yield {"type": "text", "data": chunk}
+                    else:
+                        content = str(chunk) if chunk else ""
+                        if content:
+                            yield {"type": "text", "data": content}
+
+            # ── Final metadata ────────────────────────────────────────────
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            yield {
+                "type": "metadata",
+                "data": {
+                    "confidence": confidence,
+                    "intent": intent.value,
+                    "processing_time_ms": elapsed_ms,
+                    "bias_analysis": bias_analysis,
+                },
+            }
 
         except Exception:
             logger.exception("Streaming error")
@@ -686,6 +914,7 @@ _langchain_rag_pipeline: Optional[LangChainRAGPipeline] = None
 
 
 _langchain_rag_pipeline = None
+
 
 def get_langchain_rag_pipeline():
     global _langchain_rag_pipeline

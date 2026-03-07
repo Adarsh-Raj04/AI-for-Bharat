@@ -1,60 +1,72 @@
-import { useAuth0 } from '@auth0/auth0-react'
-import { useState, useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import Layout from './components/Layout'
-import ChatPage from './pages/ChatPage'
-import LoginPage from './pages/LoginPage'
-import LoadingSpinner from './components/LoadingSpinner'
-import EmailVerificationRequired from './components/EmailVerificationRequired'
-import { ThemeProvider } from './contexts/ThemeContext'
-import api from './services/api'
+import { useAuth0 } from "@auth0/auth0-react";
+import { useState, useEffect } from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import Layout from "./components/Layout";
+import ChatPage from "./pages/ChatPage";
+import LoginPage from "./pages/LoginPage";
+import LoadingSpinner from "./components/LoadingSpinner";
+import EmailVerificationRequired from "./components/EmailVerificationRequired";
+import { ThemeProvider } from "./contexts/ThemeContext";
+import api from "./services/api";
 
 function App() {
-  const { isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0()
-  const [currentSessionId, setCurrentSessionId] = useState(null)
-  const [authValidated, setAuthValidated] = useState(false)
-  const [emailVerificationRequired, setEmailVerificationRequired] = useState(false)
-  const [messages, setMessages] = useState([])   // ← lifted here
+  const { isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [authValidated, setAuthValidated] = useState(false);
+  const [emailVerificationRequired, setEmailVerificationRequired] =
+    useState(false);
+  const [messages, setMessages] = useState([]);
+  const [currentSessionName, setCurrentSessionName] = useState(null); // ← NEW
+  const [messagesLoading, setMessagesLoading] = useState(false); // ← NEW
 
   useEffect(() => {
     const validateAuth = async () => {
       if (isAuthenticated) {
         try {
-          const token = await getAccessTokenSilently()
-          await api.get('/auth/me', {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-          setAuthValidated(true)
-          setEmailVerificationRequired(false)
+          const token = await getAccessTokenSilently();
+          await api.get("/auth/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setAuthValidated(true);
+          setEmailVerificationRequired(false);
         } catch (error) {
-          console.error('Failed to validate authentication:', error)
+          console.error("Failed to validate authentication:", error);
           if (error.response?.status === 403) {
-            setEmailVerificationRequired(true)
+            setEmailVerificationRequired(true);
           }
-          setAuthValidated(false)
+          setAuthValidated(false);
         }
       }
-    }
-    validateAuth()
-  }, [isAuthenticated, getAccessTokenSilently])
+    };
+    validateAuth();
+  }, [isAuthenticated, getAccessTokenSilently]);
 
-  // Clear messages when session changes
   const handleSessionSelect = (sessionId) => {
-    setCurrentSessionId(sessionId)
-    setMessages([])
-  }
+    setCurrentSessionId(sessionId);
+    setMessages([]);
+    setCurrentSessionName(null); // ← reset name on switch
+  };
 
   const handleNewSession = (sessionId) => {
-    setCurrentSessionId(sessionId)
-    setMessages([])
-  }
+    setCurrentSessionId(sessionId);
+    setMessages([]);
+    setCurrentSessionName(null); // ← reset name on new chat
+  };
 
-  if (isLoading || (isAuthenticated && !authValidated && !emailVerificationRequired)) {
-    return <LoadingSpinner />
+  if (
+    isLoading ||
+    (isAuthenticated && !authValidated && !emailVerificationRequired)
+  ) {
+    return <LoadingSpinner />;
   }
 
   if (isAuthenticated && emailVerificationRequired) {
-    return <EmailVerificationRequired />
+    return <EmailVerificationRequired />;
   }
 
   return (
@@ -70,13 +82,18 @@ function App() {
                   currentSessionId={currentSessionId}
                   onSessionSelect={handleSessionSelect}
                   onNewSession={handleNewSession}
-                  messages={messages}           // ← new
-                  sessionId={currentSessionId}  // ← new
+                  messages={messages}
+                  sessionId={currentSessionId}
+                  currentSessionName={currentSessionName} // ← NEW
+                  onSessionNameChange={setCurrentSessionName} // ← NEW
+                  messagesLoading={messagesLoading} // ← NEW
                 >
                   <ChatPage
                     sessionId={currentSessionId}
                     onSessionChange={setCurrentSessionId}
-                    onMessagesChange={setMessages}  // ← new
+                    onMessagesChange={setMessages}
+                    onSessionNameChange={setCurrentSessionName} // ← NEW
+                    onMessagesLoadingChange={setMessagesLoading} // ← NEW
                   />
                 </Layout>
               ) : (
@@ -87,7 +104,7 @@ function App() {
         </Routes>
       </Router>
     </ThemeProvider>
-  )
+  );
 }
 
-export default App
+export default App;

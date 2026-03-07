@@ -8,6 +8,7 @@ from app.core.rate_limit import limiter
 from app.api.v1.api import api_router
 import os
 from dotenv import load_dotenv
+from app.middleware.phi_detection import PHIDetectionMiddleware
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -19,6 +20,9 @@ app = FastAPI(
 # Set up rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── PHI Detection (before CORS so blocked requests never proceed) ─────────────
+app.add_middleware(PHIDetectionMiddleware)
 
 # Set up CORS
 app.add_middleware(

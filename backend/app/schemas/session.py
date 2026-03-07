@@ -10,11 +10,11 @@ class SessionCreateRequest(BaseModel):
 class SessionResponse(BaseModel):
     id: str
     user_id: int  # Changed from str to int
-    session_name: Optional[str]
+    session_name: str
     total_messages: int
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -24,3 +24,7 @@ class SessionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class SessionRenameRequest(BaseModel):
+    session_name: str

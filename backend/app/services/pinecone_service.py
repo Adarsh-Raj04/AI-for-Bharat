@@ -29,7 +29,7 @@ class PineconeService:
                 logger.info(f"Creating Pinecone index: {settings.PINECONE_INDEX_NAME}")
                 self.pc.create_index(
                     name=settings.PINECONE_INDEX_NAME,
-                    dimension=384,  # all-MiniLM-L6-v2 dimension
+                    dimension=1536,  # all-MiniLM-L6-v2 dimension
                     metric="cosine",
                     spec=ServerlessSpec(
                         cloud="aws", region=settings.PINECONE_ENVIRONMENT

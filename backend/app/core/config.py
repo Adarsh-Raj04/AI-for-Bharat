@@ -50,7 +50,9 @@ class Settings(BaseSettings):
     # AWS Bedrock
     BEDROCK_MODEL_ID: str = "anthropic.claude-3-sonnet-20240229-v1:0"
     BEDROCK_EMBEDDING_MODEL: str = "amazon.titan-embed-text-v1"
-
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_BEARER_TOKEN_BEDROCK: str = ""
     # AWS OpenSearch Serverless
     OPENSEARCH_ENDPOINT: str = ""
     OPENSEARCH_INDEX: str = "medresearch-docs"

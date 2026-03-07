@@ -8,28 +8,23 @@ import logging
 import re
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
 from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
 
 class SummarizationChain:
-    """
-    Specialized chain for summarizing research papers.
-    Supports both single-document and multi-document summarization.
-    """
-    
+
     def __init__(self, llm):
         self.llm = llm
         self._initialize_prompts()
-    
+
     def _initialize_prompts(self):
-        """Initialize summarization prompts"""
-        
-        # Single document summarization
-        self.single_doc_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a medical research expert. Summarize the research paper in a structured format.
+        self.single_doc_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are a medical research expert. Summarize the research paper in a structured format.
 
 INSTRUCTIONS:
 1. Extract key information from the paper
@@ -62,13 +57,17 @@ REQUIRED STRUCTURE:
 [Key limitations mentioned in the paper]
 
 PAPER CONTENT:
-{text}"""),
-            ("human", "Please summarize this research paper.")
-        ])
-        
-        # Multiple document summarization (map-reduce)
-        self.map_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Extract the key points from this research paper section.
+{text}""",
+                ),
+                ("human", "Please summarize this research paper."),
+            ]
+        )
+
+        self.map_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """Extract the key points from this research paper section.
 
 Focus on:
 - Main findings and results
@@ -79,12 +78,17 @@ Focus on:
 Be concise and factual.
 
 CONTENT:
-{text}"""),
-            ("human", "Extract key points.")
-        ])
-        
-        self.reduce_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Synthesize the following summaries into a comprehensive research summary.
+{text}""",
+                ),
+                ("human", "Extract key points."),
+            ]
+        )
+
+        self.reduce_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """Synthesize the following summaries into a comprehensive research summary.
 
 Use this structure:
 
@@ -101,13 +105,17 @@ Use this structure:
 [Overall conclusions and implications]
 
 SUMMARIES:
-{text}"""),
-            ("human", "Create a comprehensive summary.")
-        ])
-        
-        # PMID-specific prompt
-        self.pmid_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are summarizing a PubMed research paper.
+{text}""",
+                ),
+                ("human", "Create a comprehensive summary."),
+            ]
+        )
+
+        self.pmid_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are summarizing a PubMed research paper.
 
 REQUIRED STRUCTURE:
 
@@ -129,40 +137,69 @@ REQUIRED STRUCTURE:
 [Why this matters for clinical practice]
 
 PAPER CONTENT:
-{text}"""),
-            ("human", "Summarize this PubMed paper.")
-        ])
-        
+{text}""",
+                ),
+                ("human", "Summarize this PubMed paper."),
+            ]
+        )
+
         logger.info("Initialized summarization prompts")
-    
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _extract_field(self, doc: Dict[str, Any], *keys: str, default: str = "") -> str:
+        """
+        Pull a field from a reranker-flattened dict OR a nested metadata dict.
+        Reranker output has metadata fields at the top level AND inside 'metadata'.
+        """
+        # Try top-level first (reranker flattens metadata)
+        for key in keys:
+            val = doc.get(key)
+            if val:
+                return str(val)
+        # Fallback: nested metadata (LangChain Document shape)
+        meta = doc.get("metadata", {})
+        for key in keys:
+            val = meta.get(key)
+            if val:
+                return str(val)
+        return default
+
+    def _get_text(self, doc: Dict[str, Any]) -> str:
+        """Extract text from either reranker dict or LangChain Document dict."""
+        return (
+            doc.get("text")
+            or doc.get("page_content")
+            or doc.get("metadata", {}).get("text", "")
+        )
+
+    # ── public API ────────────────────────────────────────────────────────────
+
     def summarize_single_document(
         self,
         document: Dict[str, Any],
-        query: Optional[str] = None
+        query: Optional[str] = None,
     ) -> str:
-        """
-        Summarize a single research document
-        
-        Args:
-            document: Document dict with text and metadata
-            query: Optional specific question to focus on
-            
-        Returns:
-            Structured summary
-        """
         try:
-            text = document.get("text", "")
-            metadata = document.get("metadata", {})
-            
-            # Check if it's a PMID document
-            if metadata.get("source_type") == "pubmed" and metadata.get("pmid"):
+            text = self._get_text(document)
+            source_type = self._extract_field(document, "source_type")
+            pmid = self._extract_field(document, "pmid")
+
+            if source_type == "pubmed" and pmid:
+                year_raw = self._extract_field(document, "publication_date")
+                year = year_raw[:4] if year_raw else "Unknown"
+
                 chain = (
                     {
                         "text": lambda _: text,
-                        "pmid": lambda _: metadata.get("pmid", "Unknown"),
-                        "title": lambda _: metadata.get("title", "Unknown"),
-                        "journal": lambda _: metadata.get("journal", "Unknown"),
-                        "year": lambda _: metadata.get("publication_date", "Unknown")[:4],
+                        "pmid": lambda _: pmid,
+                        "title": lambda _: self._extract_field(
+                            document, "title", default="Unknown"
+                        ),
+                        "journal": lambda _: self._extract_field(
+                            document, "journal", default="Unknown"
+                        ),
+                        "year": lambda _: year,
                     }
                     | self.pmid_prompt
                     | self.llm
@@ -175,113 +212,103 @@ PAPER CONTENT:
                     | self.llm
                     | StrOutputParser()
                 )
-            
+
             summary = chain.invoke({})
             logger.info("Generated single document summary")
             return summary
-            
+
         except Exception as e:
             logger.error(f"Summarization error: {e}")
             return f"Error generating summary: {str(e)}"
-    
+
     def summarize_multiple_documents(
         self,
         documents: List[Dict[str, Any]],
-        query: Optional[str] = None
+        query: Optional[str] = None,
     ) -> str:
-        """
-        Summarize multiple research documents using map-reduce
-        
-        Args:
-            documents: List of document dicts
-            query: Optional specific question to focus on
-            
-        Returns:
-            Synthesized summary
-        """
         try:
             if len(documents) == 1:
                 return self.summarize_single_document(documents[0], query)
-            
-            # Map phase: Summarize each document
+
             individual_summaries = []
-            for i, doc in enumerate(documents[:5], 1):  # Limit to 5 docs
-                text = doc.get("text", "")
-                title = doc.get("title", f"Document {i}")
-                
+            for i, doc in enumerate(documents[:5], 1):
+                text = self._get_text(doc)
+                title = self._extract_field(doc, "title", default=f"Document {i}")
+
                 chain = (
-                    {"text": lambda x: text}
+                    {"text": lambda x, t=text: t}
                     | self.map_prompt
                     | self.llm
                     | StrOutputParser()
                 )
-                
                 summary = chain.invoke({})
                 individual_summaries.append(f"[{i}] {title}\n{summary}")
-            
-            # Reduce phase: Synthesize all summaries
+
             combined_text = "\n\n".join(individual_summaries)
-            
             chain = (
                 {"text": lambda _: combined_text}
                 | self.reduce_prompt
                 | self.llm
                 | StrOutputParser()
             )
-            
             final_summary = chain.invoke({})
-            logger.info(f"Generated multi-document summary from {len(documents)} documents")
+            logger.info(
+                f"Generated multi-document summary from {len(documents)} documents"
+            )
             return final_summary
-            
+
         except Exception as e:
             logger.error(f"Multi-document summarization error: {e}")
             return f"Error generating summary: {str(e)}"
-    
+
     def extract_pmid_from_query(self, query: str) -> Optional[str]:
-        """Extract PMID from query if present"""
-        # Match patterns like "PMID:12345678" or "PMID 12345678" or just "12345678"
+        """Extract PMID from query if present."""
         patterns = [
-            r'PMID:?\s*(\d{7,8})',
-            r'pubmed\.ncbi\.nlm\.nih\.gov/(\d{7,8})',
-            r'\b(\d{8})\b'  # 8-digit number
+            r"PMID:?\s*(\d{7,9})",  # PMID:41785024 or PMID 41785024
+            r"pubmed\.ncbi\.nlm\.nih\.gov/(\d{7,9})",  # URL form
+            r"\b(\d{8,9})\b",  # bare 8-9 digit number
         ]
-        
         for pattern in patterns:
             match = re.search(pattern, query, re.IGNORECASE)
             if match:
                 return match.group(1)
-        
         return None
-    
+
     def summarize_by_pmid(
         self,
         pmid: str,
-        documents: List[Dict[str, Any]]
+        documents: List[Dict[str, Any]],
     ) -> str:
         """
-        Summarize a specific paper by PMID
-        
-        Args:
-            pmid: PubMed ID
-            documents: Retrieved documents (should contain the PMID paper)
-            
-        Returns:
-            Summary of the specific paper
+        Summarize a specific paper by PMID.
+
+        Searches both top-level fields (reranker-flattened) and nested metadata
+        so it works regardless of which pipeline stage produced the docs.
         """
-        # Find the document with matching PMID
         target_doc = None
         for doc in documents:
-            metadata = doc.get("metadata", {})
-            if metadata.get("pmid") == pmid or metadata.get("source_id") == f"PMID:{pmid}":
+            # Reranker flattens fields to top level
+            doc_pmid = self._extract_field(doc, "pmid", "source_id")
+            if doc_pmid in (pmid, f"PMID:{pmid}"):
                 target_doc = doc
                 break
-        
+
         if not target_doc:
-            return f"Paper with PMID:{pmid} not found in retrieved documents. Please try a more specific search."
-        
+            logger.warning(
+                "PMID:%s not found in %d retrieved docs. source_ids: %s",
+                pmid,
+                len(documents),
+                [self._extract_field(d, "source_id") for d in documents],
+            )
+            return (
+                f"The document PMID:{pmid} was retrieved but could not be matched "
+                f"in the result set. This can happen when the reranker scores it below "
+                f"the top-k cutoff. Try asking: 'summarize the paper about [topic]' "
+                f"for better results, or check that PMID:{pmid} exists in the database."
+            )
+
         return self.summarize_single_document(target_doc)
 
 
 def get_summarization_chain(llm) -> SummarizationChain:
-    """Create a summarization chain instance"""
     return SummarizationChain(llm)
