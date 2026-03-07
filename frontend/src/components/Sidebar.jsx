@@ -302,7 +302,7 @@ export default function Sidebar({
                         )}
                         <div className="min-w-0">
                           <p
-                            className={`text-sm font-medium truncate ${isActive ? "text-primary-700 dark:text-primary-300" : "text-gray-800 dark:text-gray-200"}`}
+                            className={`text-xs font-medium truncate ${isActive ? "text-primary-700 dark:text-primary-300" : "text-gray-800 dark:text-gray-200"}`}
                             title={session.session_name || "Untitled Chat"}
                           >
                             {session.session_name || "Untitled Chat"}

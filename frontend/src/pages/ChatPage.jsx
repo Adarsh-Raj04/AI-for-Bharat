@@ -21,6 +21,8 @@ export default function ChatPage({
   const messagesEndRef = useRef(null);
   const { getAccessTokenSilently } = useAuth0();
   const [sessionRefresh, setSessionRefresh] = useState(0);
+  const isStreamingRef = useRef(false); // ← true while SSE stream is active
+  const sessionAssignedRef = useRef(false); // ← true once backend assigns session ID mid-stream
 
   useEffect(() => {
     checkDisclaimerStatus();
@@ -28,7 +30,16 @@ export default function ChatPage({
 
   useEffect(() => {
     if (sessionId) {
-      loadSessionMessages(sessionId);
+      // If the session ID was just assigned by the backend mid-stream,
+      // don't reload — messages are already rendering live
+      if (sessionAssignedRef.current) {
+        sessionAssignedRef.current = false;
+        return;
+      }
+      // Only load if not currently streaming (user clicked existing session)
+      if (!isStreamingRef.current) {
+        loadSessionMessages(sessionId);
+      }
     } else {
       updateMessages([]);
       setMessagesLoading(false);
@@ -153,6 +164,7 @@ export default function ChatPage({
 
     setInput("");
     setLoading(true);
+    isStreamingRef.current = true;
 
     let accumulatedContent = "";
 
@@ -222,8 +234,10 @@ export default function ChatPage({
 
           switch (eventType) {
             case "session":
-              if (onSessionChange && payload.session_id)
+              if (onSessionChange && payload.session_id) {
+                sessionAssignedRef.current = true; // prevent useEffect reload
                 onSessionChange(payload.session_id);
+              }
               break;
             case "citations":
               patchPlaceholder({
@@ -242,8 +256,10 @@ export default function ChatPage({
                 intent: payload.intent,
                 streaming: false,
               });
-              if (onSessionChange && payload.session_id)
+              if (onSessionChange && payload.session_id) {
+                sessionAssignedRef.current = true; // prevent useEffect reload
                 onSessionChange(payload.session_id);
+              }
               break;
 
             case "rename":
@@ -280,6 +296,7 @@ export default function ChatPage({
       });
     } finally {
       setLoading(false);
+      isStreamingRef.current = false;
     }
   };
 
@@ -442,6 +459,7 @@ export default function ChatPage({
                   placeholder="Ask about research, or use 📎 to summarize a document..."
                   className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-colors"
                   disabled={loading}
+                  autoFocus
                 />
               </div>
               <button

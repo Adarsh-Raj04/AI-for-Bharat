@@ -31,6 +31,16 @@ export default function Layout({
 
   const handleToggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
+  // Add this inside Layout.jsx if you want extra-smooth focus transitions
+  useEffect(() => {
+    if (!sidebarOpen || !isMobile) {
+      // Small delay to allow layout transition to finish
+      setTimeout(() => {
+        document.querySelector('input[type="text"]')?.focus();
+      }, 100);
+    }
+  }, [sidebarOpen, isMobile]);
+
   const handleSessionSelect = (sid) => {
     onSessionSelect?.(sid);
     if (isMobile) setSidebarOpen(false);
