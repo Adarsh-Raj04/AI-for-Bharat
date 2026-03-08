@@ -111,13 +111,11 @@ export default function Navbar({
             )}
           </button>
 
-          <div className="flex items-center">
-            <img
-              src="../../logo.png"
-              alt="MedResearch AI"
-              className="h-7 sm:h-8 md:h-9 lg:h-10 max-w-[160px] w-auto object-contain"
-            />
-          </div>
+          <img
+            src="/logo.png"
+            alt="MedResearch AI"
+            className="h-7 sm:h-8 md:h-9 lg:h-10 max-w-[160px] w-auto object-contain"
+          />
         </div>
 
         {/* ── Right: Export + Theme + User menu ── */}
