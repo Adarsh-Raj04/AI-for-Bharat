@@ -128,7 +128,7 @@ export default function ChatPage({
     session_name,
   }) => {
     const alreadyNote = already_existed
-      ? "\n\n> *This research paper was already in the knowledge base — summary generated from existing index.*"
+      ? "\n\n> *This research paper was already in the knowledge base.*"
       : "";
     const docEntry = {
       source_id,

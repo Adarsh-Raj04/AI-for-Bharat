@@ -21,6 +21,7 @@ export default function Sidebar({
   const [pendingSessionId, setPendingSessionId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null); // ← inline delete confirm
   const renameInputRef = useRef(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const {
     getAccessTokenSilently,
@@ -168,20 +169,30 @@ export default function Sidebar({
 
   const confirmDelete = async (e, sessionId) => {
     e.stopPropagation();
+
     try {
+      setDeletingId(sessionId); // ← start loading
+
       const token = await getAccessTokenSilently();
+
       await api.delete(`/sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      // small UX delay so spinner is visible
+      await new Promise((r) => setTimeout(r, 100));
+
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       setConfirmDeleteId(null);
-      // If deleted session was active, reset to new chat
+
       if (currentSessionId === sessionId) {
         onNewSession?.(null);
       }
     } catch (error) {
       console.error("Failed to delete session:", error);
       setConfirmDeleteId(null);
+    } finally {
+      setDeletingId(null); // ← stop loading
     }
   };
 
@@ -239,6 +250,7 @@ export default function Sidebar({
               const isRenaming = renamingId === session.id;
               const isConfirmingDelete = confirmDeleteId === session.id;
               const isFetching = isSessionLoading(session.id);
+              const isDeleting = deletingId === session.id;
 
               return (
                 <div
@@ -263,37 +275,47 @@ export default function Sidebar({
                     </div>
                   ) : /* ── Delete confirm ── */
                   isConfirmingDelete ? (
-                    <div
-                      className="px-3 py-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <p className="text-xs text-gray-600 dark:text-gray-300 mb-2 font-medium">
-                        Delete this chat?
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={(e) => confirmDelete(e, session.id)}
-                          className="flex-1 py-1 rounded text-xs font-medium bg-red-500 hover:bg-red-600 text-white transition-colors"
-                        >
-                          Delete
-                        </button>
-                        <button
-                          onClick={cancelDelete}
-                          className="flex-1 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors"
-                        >
-                          Cancel
-                        </button>
+                    deletingId === session.id ? (
+                      <div
+                        className="px-3 py-2 flex items-center gap-2 text-xs text-gray-500"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="flex-shrink-0 w-3 h-3 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />
+                        Deleting…
                       </div>
-                    </div>
+                    ) : (
+                      <div
+                        className="px-3 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <p className="text-xs text-gray-600 dark:text-gray-300 mb-2 font-medium">
+                          Delete this chat?
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={(e) => confirmDelete(e, session.id)}
+                            className="flex-1 py-1 rounded text-xs font-medium bg-red-500 hover:bg-red-600 text-white transition-colors"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={cancelDelete}
+                            className="flex-1 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )
                   ) : (
                     /* ── Normal row ── */
                     <button
                       onClick={() => handleSessionClick(session.id)}
-                      disabled={isFetching}
+                      disabled={isFetching || isDeleting}
                       className="w-full text-left px-3 py-2 flex items-center justify-between"
                     >
                       <div className="flex-1 min-w-0 flex items-center gap-2">
-                        {isFetching ? (
+                        {isFetching || isDeleting ? (
                           <span className="flex-shrink-0 w-3 h-3 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />
                         ) : isActive ? (
                           <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-primary-500" />
@@ -316,7 +338,7 @@ export default function Sidebar({
                       </div>
 
                       {/* Hover actions — rename + delete */}
-                      {!isFetching && (
+                      {!isFetching && !isDeleting && (
                         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 ml-1 flex-shrink-0 transition-opacity">
                           <span
                             role="button"

@@ -207,6 +207,7 @@ class LangChainRAGPipeline:
             "                                              | Data   | Data   |\n"
             "6. Include relevant statistics, findings, or data points from the sources\n"
             "7. Be concise but comprehensive\n\n"
+            "8. If the document is not relevant to medical research, state 'This document is not relevant to medical research.'\n\n"
             "CONTEXT DOCUMENTS:\n{context}"
         )
 
@@ -880,6 +881,7 @@ Always refer to documents by their actual names: **{title_a}** and **{title_b}**
             if intent == QueryIntent.SUMMARIZATION:
                 pmid = self.summarization_chain.extract_pmid_from_query(query)
                 if pmid:
+                    print("Routing to PMID-specific summarization for PMID:", pmid)
                     pmid_docs = self._fetch_by_pmid(pmid)
                     if pmid_docs:
                         logger.info(
@@ -899,10 +901,16 @@ Always refer to documents by their actual names: **{title_a}** and **{title_b}**
                             pmid, reranked_docs
                         )
                 elif len(reranked_docs) == 1:
+                    print(
+                        "Single document retrieved, using single-document summarization"
+                    )
                     response_text = self.summarization_chain.summarize_single_document(
                         reranked_docs[0]
                     )
                 else:
+                    print(
+                        "Multiple documents retrieved, using multi-document summarization"
+                    )
                     yield {"type": "citations", "data": citations}
                     response_text = (
                         self.summarization_chain.summarize_multiple_documents(
@@ -912,11 +920,13 @@ Always refer to documents by their actual names: **{title_a}** and **{title_b}**
                 yield {"type": "text", "data": response_text}
 
             elif intent == QueryIntent.COMPARISON:
+                print("Comparison query received")
                 yield {"type": "citations", "data": citations}
                 response_text = self.comparison_chain.compare(query, formatted_context)
                 yield {"type": "text", "data": response_text}
 
             elif intent == QueryIntent.REGULATORY_COMPLIANCE:
+                print("Regulatory compliance query received")
                 yield {"type": "citations", "data": citations}
                 response_text = self.regulatory_chain.get_regulatory_info(
                     query, formatted_context
@@ -924,6 +934,7 @@ Always refer to documents by their actual names: **{title_a}** and **{title_b}**
                 yield {"type": "text", "data": response_text}
 
             else:
+                print("General QA query received")
                 # General QA — stream token by token
                 yield {"type": "citations", "data": citations}
 

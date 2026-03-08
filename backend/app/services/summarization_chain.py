@@ -32,6 +32,7 @@ INSTRUCTIONS:
 3. Be concise but comprehensive
 4. Include specific numbers, statistics, and findings
 5. Cite the source with [1] notation
+6. If the paper is not relevant to any type of medical research, just say "This paper is not relevant to medical research."
 
 REQUIRED STRUCTURE:
 
@@ -69,6 +70,13 @@ PAPER CONTENT:
                     "system",
                     """Extract the key points from this research paper section.
 
+"Instructions:
+1. Focus on the most important information relevant to medical research.
+2. Be concise and factual.
+3. Use bullet points for clarity.
+4. If provided text is not relevant to medical research, just say "The provided document is not relevant to medical research, please use other document."
+"                    
+
 Focus on:
 - Main findings and results
 - Methodology highlights
@@ -89,6 +97,14 @@ CONTENT:
                 (
                     "system",
                     """Synthesize the following summaries into a comprehensive research summary.
+
+"Instructions:
+1. Focus on the most important information relevant to medical research.
+2. Be concise and factual.
+3. Use bullet points for clarity.
+4. If provided text is not relevant to medical research, just say "The provided document is not relevant to medical research, please use other document."
+"                     
+                    
 
 Use this structure:
 
@@ -228,6 +244,9 @@ PAPER CONTENT:
     ) -> str:
         try:
             if len(documents) == 1:
+                print(
+                    "Only one document provided, using single-document summarization for multi-doc method"
+                )
                 return self.summarize_single_document(documents[0], query)
 
             individual_summaries = []

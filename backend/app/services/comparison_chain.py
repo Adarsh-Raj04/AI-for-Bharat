@@ -17,17 +17,20 @@ class ComparisonChain:
     Specialized chain for systematic comparisons of drugs, treatments, or studies.
     Provides structured, table-based comparisons with evidence citations.
     """
-    
+
     def __init__(self, llm):
         self.llm = llm
         self._initialize_prompts()
-    
+
     def _initialize_prompts(self):
         """Initialize comparison prompts"""
-        
+
         # Drug/Treatment comparison
-        self.drug_comparison_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a medical research expert specializing in comparative analysis.
+        self.drug_comparison_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are a medical research expert specializing in comparative analysis.
 
 TASK: Compare the specified drugs or treatments systematically.
 
@@ -74,6 +77,8 @@ INSTRUCTIONS:
 6. Note when direct comparisons are not available
 7. Replace "Item A" and "Item B" with the actual names from the question
 8. CRITICAL: Ensure all tables use proper markdown syntax with pipes (|) and dashes (-)
+9. If any of the provided documents are not relevant to medical research, ignore them in the comparison and do not cite them and reply with "The provided context does not contain relevant information for this comparison.
+10. If none of the provided documents are relevant to the comparison, state "The provided context does not contain relevant information for this comparison."
 
 EXAMPLE TABLE FORMAT:
 | Column 1 | Column 2 | Column 3 |
@@ -81,13 +86,18 @@ EXAMPLE TABLE FORMAT:
 | Data 1   | Data 2   | Data 3   |
 
 CONTEXT:
-{context}"""),
-            ("human", "{question}")
-        ])
-        
+{context}""",
+                ),
+                ("human", "{question}"),
+            ]
+        )
+
         # Study comparison
-        self.study_comparison_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a medical research expert comparing clinical studies.
+        self.study_comparison_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are a medical research expert comparing clinical studies.
 
 TASK: Compare the specified clinical studies systematically.
 
@@ -135,13 +145,18 @@ EXAMPLE TABLE FORMAT:
 | Data 1   | Data 2   | Data 3   |
 
 CONTEXT:
-{context}"""),
-            ("human", "{question}")
-        ])
-        
+{context}""",
+                ),
+                ("human", "{question}"),
+            ]
+        )
+
         # General comparison (flexible)
-        self.general_comparison_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a medical research expert performing comparative analysis.
+        self.general_comparison_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are a medical research expert performing comparative analysis.
 
 TASK: Compare the specified items systematically.
 
@@ -191,114 +206,136 @@ EXAMPLE TABLE FORMAT:
 | Data 1   | Data 2   | Data 3   |
 
 CONTEXT:
-{context}"""),
-            ("human", "{question}")
-        ])
-        
+{context}""",
+                ),
+                ("human", "{question}"),
+            ]
+        )
+
         logger.info("Initialized comparison prompts")
-    
+
     def detect_comparison_type(self, query: str) -> str:
         """
         Detect what type of comparison is being requested
-        
+
         Returns: 'drug', 'study', or 'general'
         """
         query_lower = query.lower()
-        
+
         # Drug/treatment comparison indicators
         drug_keywords = [
-            'drug', 'medication', 'treatment', 'therapy', 'agent',
-            'pembrolizumab', 'nivolumab', 'chemotherapy', 'immunotherapy',
-            'efficacy', 'safety', 'adverse event', 'side effect'
+            "drug",
+            "medication",
+            "treatment",
+            "therapy",
+            "agent",
+            "pembrolizumab",
+            "nivolumab",
+            "chemotherapy",
+            "immunotherapy",
+            "efficacy",
+            "safety",
+            "adverse event",
+            "side effect",
         ]
-        
+
         # Study comparison indicators
         study_keywords = [
-            'study', 'trial', 'research', 'investigation',
-            'phase', 'nct', 'pmid', 'clinical trial'
+            "study",
+            "trial",
+            "research",
+            "investigation",
+            "phase",
+            "nct",
+            "pmid",
+            "clinical trial",
         ]
-        
+
         drug_score = sum(1 for kw in drug_keywords if kw in query_lower)
         study_score = sum(1 for kw in study_keywords if kw in query_lower)
-        
+
         if drug_score > study_score:
-            return 'drug'
+            return "drug"
         elif study_score > drug_score:
-            return 'study'
+            return "study"
         else:
-            return 'general'
-    
+            return "general"
+
     def extract_comparison_items(self, query: str) -> tuple:
         """
         Extract the two items being compared from the query
-        
+
         Returns: (item_a, item_b) or (None, None)
         """
         import re
-        
+
         # Pattern: "X vs Y" or "X versus Y" or "compare X and Y"
         patterns = [
-            r'(\w+(?:\s+\w+)*)\s+(?:vs\.?|versus)\s+(\w+(?:\s+\w+)*)',
-            r'compare\s+(\w+(?:\s+\w+)*)\s+(?:and|with|to)\s+(\w+(?:\s+\w+)*)',
-            r'difference\s+between\s+(\w+(?:\s+\w+)*)\s+and\s+(\w+(?:\s+\w+)*)',
+            r"(\w+(?:\s+\w+)*)\s+(?:vs\.?|versus)\s+(\w+(?:\s+\w+)*)",
+            r"compare\s+(\w+(?:\s+\w+)*)\s+(?:and|with|to)\s+(\w+(?:\s+\w+)*)",
+            r"difference\s+between\s+(\w+(?:\s+\w+)*)\s+and\s+(\w+(?:\s+\w+)*)",
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, query, re.IGNORECASE)
             if match:
                 return match.group(1).strip(), match.group(2).strip()
-        
+
         return None, None
-    
+
     def _ensure_markdown_tables(self, text: str) -> str:
         """
         Post-process text to ensure tables are in proper markdown format
-        
+
         Args:
             text: Generated text that may contain malformed tables
-            
+
         Returns:
             Text with properly formatted markdown tables
         """
         import re
-        
-        lines = text.split('\n')
+
+        lines = text.split("\n")
         processed_lines = []
         in_table = False
-        
+
         for i, line in enumerate(lines):
             stripped = line.strip()
-            
+
             # Detect table rows (lines with multiple | characters)
-            if '|' in stripped and stripped.count('|') >= 2:
+            if "|" in stripped and stripped.count("|") >= 2:
                 # Clean up the line
-                parts = [p.strip() for p in stripped.split('|')]
+                parts = [p.strip() for p in stripped.split("|")]
                 # Remove empty first/last elements if line starts/ends with |
-                if parts and parts[0] == '':
+                if parts and parts[0] == "":
                     parts = parts[1:]
-                if parts and parts[-1] == '':
+                if parts and parts[-1] == "":
                     parts = parts[:-1]
-                
+
                 if parts:
                     # Reconstruct as proper markdown table row
-                    formatted_line = '| ' + ' | '.join(parts) + ' |'
-                    
+                    formatted_line = "| " + " | ".join(parts) + " |"
+
                     # If this is the first row of a table, add separator after it
                     if not in_table:
                         processed_lines.append(formatted_line)
                         # Add separator row if next line isn't already a separator
                         if i + 1 < len(lines):
                             next_line = lines[i + 1].strip()
-                            if not (next_line.startswith('|') and '-' in next_line):
+                            if not (next_line.startswith("|") and "-" in next_line):
                                 # Create separator with correct number of columns
-                                separator = '| ' + ' | '.join(['---'] * len(parts)) + ' |'
+                                separator = (
+                                    "| " + " | ".join(["---"] * len(parts)) + " |"
+                                )
                                 processed_lines.append(separator)
                         in_table = True
                     else:
                         # Check if this is a separator row
-                        if all(p.replace('-', '').replace(' ', '') == '' for p in parts):
+                        if all(
+                            p.replace("-", "").replace(" ", "") == "" for p in parts
+                        ):
                             # It's a separator, ensure proper format
-                            separator = '| ' + ' | '.join(['---'] * len(parts)) + ' |'
+                            separator = "| " + " | ".join(["---"] * len(parts)) + " |"
                             processed_lines.append(separator)
                         else:
                             # Regular data row
@@ -310,23 +347,20 @@ CONTEXT:
                 # Not a table row
                 processed_lines.append(line)
                 in_table = False
-        
-        return '\n'.join(processed_lines)
-    
+
+        return "\n".join(processed_lines)
+
     def compare(
-        self,
-        query: str,
-        context: str,
-        comparison_type: Optional[str] = None
+        self, query: str, context: str, comparison_type: Optional[str] = None
     ) -> str:
         """
         Generate a systematic comparison
-        
+
         Args:
             query: Comparison query
             context: Formatted context documents
             comparison_type: Type of comparison ('drug', 'study', 'general')
-            
+
         Returns:
             Structured comparison text
         """
@@ -334,35 +368,34 @@ CONTEXT:
             # Auto-detect comparison type if not provided
             if comparison_type is None:
                 comparison_type = self.detect_comparison_type(query)
-            
+
             # Select appropriate prompt (no dynamic replacement needed)
-            if comparison_type == 'drug':
+            if comparison_type == "drug":
                 prompt = self.drug_comparison_prompt
-            elif comparison_type == 'study':
+            elif comparison_type == "study":
                 prompt = self.study_comparison_prompt
             else:
                 prompt = self.general_comparison_prompt
-            
+
             # Build chain
             chain = (
-                {
-                    "context": lambda _: context,
-                    "question": RunnablePassthrough()
-                }
+                {"context": lambda _: context, "question": RunnablePassthrough()}
                 | prompt
                 | self.llm
                 | StrOutputParser()
             )
-            
+
             # Generate comparison
             result = chain.invoke(query)
-            
+
             # Post-process to ensure proper markdown table formatting
             result = self._ensure_markdown_tables(result)
-            
-            logger.info(f"Generated {comparison_type} comparison with proper markdown tables")
+
+            logger.info(
+                f"Generated {comparison_type} comparison with proper markdown tables"
+            )
             return result
-            
+
         except Exception as e:
             logger.error(f"Comparison generation error: {e}")
             return f"Error generating comparison: {str(e)}"
