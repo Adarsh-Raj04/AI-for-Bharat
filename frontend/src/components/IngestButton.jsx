@@ -9,10 +9,18 @@ import {
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 
+/**
+ * Props:
+ *   sessionId       — current session ID (may be null for new chat)
+ *   onSummaryReady  — called with { summary, citation, source_id,
+ *                                   chunks_indexed, already_existed,
+ *                                   session_id, session_name }
+ *   disabled        — grey out during active stream
+ */
 export default function IngestButton({
+  sessionId,
   onSummaryReady,
   disabled = false,
-  sessionId,
 }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState(null);
@@ -26,7 +34,6 @@ export default function IngestButton({
     setStatus("idle");
     setErrorMsg("");
   };
-
   const close = () => {
     setOpen(false);
     reset();
@@ -38,24 +45,37 @@ export default function IngestButton({
     setErrorMsg("");
     try {
       const token = await getAccessTokenSilently();
+      const apiUrl = import.meta.env.VITE_API_URL || "";
+
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("session_id", sessionId);
-      const res = await fetch("/api/v1/ingest/document", {
+      // Always send session_id — backend uses it to attach to existing session
+      // or creates a new one if missing/invalid
+      formData.append("session_id", sessionId || "");
+
+      const res = await fetch(`${apiUrl}/api/v1/ingest/document`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to process file");
+
       setStatus("success");
+
+      // Forward everything including session_id + session_name so ChatPage
+      // can update the session and Sidebar
       onSummaryReady({
         summary: data.summary,
         citation: data.citation,
         source_id: data.source_id,
         chunks_indexed: data.chunks_indexed,
         already_existed: data.already_existed,
+        session_id: data.session_id, // ← new
+        session_name: data.session_name, // ← new
       });
+
       setTimeout(close, 1200);
     } catch (err) {
       setStatus("error");
@@ -65,7 +85,6 @@ export default function IngestButton({
 
   return (
     <div className="relative">
-      {/* Trigger button */}
       <button
         type="button"
         onClick={() => {
@@ -73,32 +92,19 @@ export default function IngestButton({
         }}
         disabled={disabled}
         title="Upload PDF or DOCX to summarize"
-        className={`
-          p-2 rounded-lg transition-colors
-          ${
-            disabled
-              ? "text-gray-300 cursor-not-allowed"
-              : "text-gray-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20"
-          }
-        `}
+        className={`p-2 rounded-lg transition-colors ${
+          disabled
+            ? "text-gray-300 dark:text-gray-600 cursor-not-allowed"
+            : "text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+        }`}
       >
         <Paperclip className="w-5 h-5" />
       </button>
 
-      {/* Popover */}
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={close} />
-
-          <div
-            className="
-            absolute bottom-12 left-0 z-40 w-72
-            bg-white dark:bg-gray-900
-            border border-gray-200 dark:border-gray-700
-            rounded-2xl shadow-2xl p-4
-          "
-          >
-            {/* Header */}
+          <div className="absolute bottom-12 left-0 z-40 w-72 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-violet-500" />
@@ -114,16 +120,9 @@ export default function IngestButton({
               </button>
             </div>
 
-            {/* Drop zone */}
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="
-                border-2 border-dashed border-gray-200 dark:border-gray-700
-                rounded-xl p-5 text-center cursor-pointer mb-3
-                hover:border-violet-400 dark:hover:border-violet-500
-                hover:bg-violet-50/50 dark:hover:bg-violet-900/10
-                transition-colors
-              "
+              className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-5 text-center cursor-pointer mb-3 hover:border-violet-400 dark:hover:border-violet-500 hover:bg-violet-50/50 dark:hover:bg-violet-900/10 transition-colors"
             >
               <FileText className="w-7 h-7 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
               {file ? (
@@ -136,7 +135,7 @@ export default function IngestButton({
                     Click to choose file
                   </p>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                    PDF or DOCX · max 20 MB
+                    PDF or DOCX · max 5 MB
                   </p>
                 </>
               )}
@@ -158,15 +157,11 @@ export default function IngestButton({
               type="button"
               onClick={submitFile}
               disabled={!file || status === "loading"}
-              className={`
-                w-full flex items-center justify-center gap-2
-                py-2 px-4 rounded-lg text-sm font-medium transition-colors
-                ${
-                  !file || status === "loading"
-                    ? "bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed"
-                    : "bg-violet-600 hover:bg-violet-700 text-white"
-                }
-              `}
+              className={`w-full flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
+                !file || status === "loading"
+                  ? "bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed"
+                  : "bg-violet-600 hover:bg-violet-700 text-white"
+              }`}
             >
               {status === "loading" ? (
                 <>

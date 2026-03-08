@@ -19,6 +19,9 @@ class Message(Base):
     source_id = Column(String, nullable=True)
     tokens_used = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    compare_docs = Column(
+        JSON, nullable=True
+    )  # Store compare_docs as JSON, e.g. [{"source_id": "id_a", "title": "title_a"}, {"source_id": "id_b", "title": "title_b"}]
 
     # Relationships
     session = relationship("Session", back_populates="messages")

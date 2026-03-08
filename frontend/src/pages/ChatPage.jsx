@@ -4,25 +4,37 @@ import api from "../services/api";
 import ChatMessage from "../components/ChatMessage";
 import DisclaimerModal from "../components/DisclaimerModal";
 import IngestButton from "../components/IngestButton";
+import ArtifactsMenu from "../components/ArtifactsMenu";
+import {
+  getRecentDocs,
+  upsertRecentDoc,
+  removeRecentDoc,
+} from "../services/recentDocs";
 
 export default function ChatPage({
   sessionId,
   onSessionChange,
   onMessagesChange,
   onSessionNameChange,
-  onMessagesLoadingChange, // ← notifies App so Sidebar spinner works
+  onMessagesLoadingChange,
 }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  // ── Doc filter state ─────────────────────────────────────────────────────
+  // Single mode: activeDocFilter = { source_id, title } | null
+  // Compare mode: compareFilters = [{ source_id, title }, { source_id, title }] | null
   const [activeDocFilter, setActiveDocFilter] = useState(null);
-  const [messagesLoading, setMessagesLoading] = useState(false); // ← NEW
+  const [compareFilters, setCompareFilters] = useState(null);
+  const [recentDocs, setRecentDocs] = useState(() => getRecentDocs());
+
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const { getAccessTokenSilently } = useAuth0();
-  const [sessionRefresh, setSessionRefresh] = useState(0);
-  const isStreamingRef = useRef(false); // ← true while SSE stream is active
-  const sessionAssignedRef = useRef(false); // ← true once backend assigns session ID mid-stream
+  const isStreamingRef = useRef(false);
+  const sessionAssignedRef = useRef(false);
 
   useEffect(() => {
     checkDisclaimerStatus();
@@ -30,19 +42,20 @@ export default function ChatPage({
 
   useEffect(() => {
     if (sessionId) {
-      // If the session ID was just assigned by the backend mid-stream,
-      // don't reload — messages are already rendering live
       if (sessionAssignedRef.current) {
         sessionAssignedRef.current = false;
         return;
       }
-      // Only load if not currently streaming (user clicked existing session)
       if (!isStreamingRef.current) {
+        setActiveDocFilter(null);
+        setCompareFilters(null);
         loadSessionMessages(sessionId);
       }
     } else {
       updateMessages([]);
       setMessagesLoading(false);
+      setActiveDocFilter(null);
+      setCompareFilters(null);
     }
   }, [sessionId]);
 
@@ -51,7 +64,6 @@ export default function ChatPage({
   }, [messages]);
 
   const pendingNotifyRef = useRef(null);
-
   const updateMessages = (msgsOrFn) => {
     if (typeof msgsOrFn === "function") {
       setMessages((prev) => {
@@ -64,7 +76,6 @@ export default function ChatPage({
       pendingNotifyRef.current = msgsOrFn;
     }
   };
-
   useEffect(() => {
     if (pendingNotifyRef.current !== null) {
       onMessagesChange?.(pendingNotifyRef.current);
@@ -72,10 +83,9 @@ export default function ChatPage({
     }
   });
 
-  // ── Load session messages with loading state ─────────────────────────────
   const loadSessionMessages = async (sid) => {
     setMessagesLoading(true);
-    onMessagesLoadingChange?.(true); // ← notify App → Layout → Sidebar
+    onMessagesLoadingChange?.(true);
     updateMessages([]);
     try {
       const token = await getAccessTokenSilently();
@@ -88,7 +98,7 @@ export default function ChatPage({
       updateMessages([]);
     } finally {
       setMessagesLoading(false);
-      onMessagesLoadingChange?.(false); // ← notify App → Layout → Sidebar
+      onMessagesLoadingChange?.(false);
     }
   };
 
@@ -102,27 +112,35 @@ export default function ChatPage({
       const response = await api.get("/auth/disclaimer/status", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.data.accepted) {
-        setShowDisclaimer(true);
-      }
+      if (!response.data.accepted) setShowDisclaimer(true);
     } catch (error) {
       console.error("Failed to check disclaimer:", error);
     }
   };
 
+  // ── Ingest result handler ─────────────────────────────────────────────────
   const handleIngestResult = ({
     summary,
     citation,
     source_id,
     already_existed,
+    session_id,
+    session_name,
   }) => {
     const alreadyNote = already_existed
-      ? "\n\n> *This document was already in the knowledge base — summary generated from existing index.*"
+      ? "\n\n> *This research paper was already in the knowledge base — summary generated from existing index.*"
       : "";
-    setActiveDocFilter({
-      source_id: source_id,
-      title: citation?.title || "Uploaded document",
-    });
+    const docEntry = {
+      source_id,
+      title: citation?.title || "Uploaded research paper",
+    };
+
+    setActiveDocFilter(docEntry);
+    setCompareFilters(null);
+
+    upsertRecentDoc(docEntry);
+    setRecentDocs(getRecentDocs());
+
     updateMessages((prev) => [
       ...prev,
       {
@@ -136,19 +154,40 @@ export default function ChatPage({
         error: false,
       },
     ]);
+
+    if (session_id) {
+      sessionAssignedRef.current = true;
+      onSessionChange?.(session_id);
+    }
+    if (session_name) onSessionNameChange?.(session_name);
   };
 
+  // ── ArtifactsMenu handler ─────────────────────────────────────────────────
+  const handleArtifactSelect = (single, compare) => {
+    setActiveDocFilter(single);
+    setCompareFilters(compare);
+  };
+
+  const handleRemoveDoc = (source_id) => {
+    removeRecentDoc(source_id);
+    setRecentDocs(getRecentDocs());
+    if (activeDocFilter?.source_id === source_id) setActiveDocFilter(null);
+    if (compareFilters?.some((d) => d.source_id === source_id))
+      setCompareFilters(null);
+  };
+
+  // ── Send message ──────────────────────────────────────────────────────────
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim() || loading) return;
 
-    const userMessage = { role: "user", content: input };
-    const withUser = [...messages, userMessage];
-    // Stable ID prevents index-shift crash when ingest messages are in the array
     const placeholderId = `streaming-${Date.now()}`;
+    // Snapshot compare context — stored on message so it survives session reload
+    const compareDocs = compareFilters ? [...compareFilters] : null;
 
-    updateMessages([
-      ...withUser,
+    updateMessages((prev) => [
+      ...prev,
+      { role: "user", content: input, compare_docs: compareDocs },
       {
         _id: placeholderId,
         role: "assistant",
@@ -162,12 +201,12 @@ export default function ChatPage({
       },
     ]);
 
+    const sentInput = input;
     setInput("");
     setLoading(true);
     isStreamingRef.current = true;
 
     let accumulatedContent = "";
-
     const patchPlaceholder = (patch) => {
       updateMessages((prev) => {
         const idx = prev.findIndex((m) => m._id === placeholderId);
@@ -178,11 +217,25 @@ export default function ChatPage({
       });
     };
 
-    setSessionRefresh((prev) => prev + 2);
-
     try {
       const token = await getAccessTokenSilently();
       const apiUrl = import.meta.env.VITE_API_URL;
+
+      const body = {
+        session_id: sessionId,
+        message: sentInput,
+        stream: true,
+        source_filter: compareFilters
+          ? null
+          : (activeDocFilter?.source_id ?? null),
+        compare_filters: compareFilters
+          ? compareFilters.map((d) => d.source_id)
+          : null,
+        // Human-readable titles so backend uses real names in the comparison prompt
+        compare_titles: compareFilters
+          ? compareFilters.map((d) => d.title)
+          : null,
+      };
 
       const response = await fetch(`${apiUrl}/api/v1/chat/chat`, {
         method: "POST",
@@ -190,14 +243,8 @@ export default function ChatPage({
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          session_id: sessionId,
-          message: input,
-          stream: true,
-          source_filter: activeDocFilter?.source_id ?? null,
-        }),
+        body: JSON.stringify(body),
       });
-
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const reader = response.body.getReader();
@@ -207,24 +254,19 @@ export default function ChatPage({
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const frames = buffer.split("\n\n");
         buffer = frames.pop();
 
         for (const frame of frames) {
           if (!frame.trim()) continue;
-
-          let eventType = null;
-          let dataStr = null;
-
+          let eventType = null,
+            dataStr = null;
           for (const line of frame.split("\n")) {
             if (line.startsWith("event: ")) eventType = line.slice(7).trim();
             if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
           }
-
           if (!eventType || !dataStr) continue;
-
           let payload;
           try {
             payload = JSON.parse(dataStr);
@@ -235,7 +277,7 @@ export default function ChatPage({
           switch (eventType) {
             case "session":
               if (onSessionChange && payload.session_id) {
-                sessionAssignedRef.current = true; // prevent useEffect reload
+                sessionAssignedRef.current = true;
                 onSessionChange(payload.session_id);
               }
               break;
@@ -257,13 +299,11 @@ export default function ChatPage({
                 streaming: false,
               });
               if (onSessionChange && payload.session_id) {
-                sessionAssignedRef.current = true; // prevent useEffect reload
+                sessionAssignedRef.current = true;
                 onSessionChange(payload.session_id);
               }
               break;
-
             case "rename":
-              // Backend generated a smart name — update Sidebar live
               if (payload.session_name)
                 onSessionNameChange?.(payload.session_name);
               break;
@@ -285,9 +325,7 @@ export default function ChatPage({
         "Sorry, I encountered an error processing your request. Please try again.";
       if (error?.message === "HTTP 400") {
         errorContent =
-          "Your query appears to contain personal health information (PHI). " +
-          "Please remove any patient identifiers, phone numbers, or personal details " +
-          "and rephrase as a general research question.";
+          "Your query appears to contain personal health information (PHI). Please remove any patient identifiers and rephrase as a general research question.";
       }
       patchPlaceholder({
         content: errorContent,
@@ -300,13 +338,81 @@ export default function ChatPage({
     }
   };
 
+  // ── Active filter status bar label ────────────────────────────────────────
+  const filterBar = () => {
+    if (compareFilters?.length === 2) {
+      return (
+        <div className="flex items-center justify-between gap-2 mb-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-violet-500 text-sm flex-shrink-0">⚖️</span>
+            <span className="text-xs text-violet-700 dark:text-violet-300 truncate">
+              Comparing:{" "}
+              <span className="font-medium">
+                {compareFilters[0].title.length > 28
+                  ? compareFilters[0].title.slice(0, 28) + "…"
+                  : compareFilters[0].title}
+              </span>
+              <span className="mx-1 opacity-60">vs</span>
+              <span className="font-medium">
+                {compareFilters[1].title.length > 28
+                  ? compareFilters[1].title.slice(0, 28) + "…"
+                  : compareFilters[1].title}
+              </span>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setCompareFilters(null);
+              setActiveDocFilter(null);
+            }}
+            className="flex-shrink-0 text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-200 font-medium"
+          >
+            ✕ Clear
+          </button>
+        </div>
+      );
+    }
+    if (activeDocFilter) {
+      return (
+        <div className="flex items-center justify-between gap-2 mb-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-violet-500 text-sm flex-shrink-0">📄</span>
+            <span className="text-xs text-violet-700 dark:text-violet-300 truncate">
+              Chatting with:{" "}
+              <span className="font-medium">
+                {activeDocFilter.title.length > 60
+                  ? activeDocFilter.title.slice(0, 60) + "…"
+                  : activeDocFilter.title}
+              </span>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveDocFilter(null)}
+            className="flex-shrink-0 text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-200 font-medium"
+          >
+            ✕ Clear
+          </button>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const inputPlaceholder =
+    compareFilters?.length === 2
+      ? "Ask a question to compare both documents…"
+      : activeDocFilter
+        ? "Ask about this document…"
+        : "Upload a research paper or ask a question...";
+
   return (
     <>
       <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900 transition-colors">
-        {/* Chat Messages Area */}
+        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6">
           <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
-            {/* ── Loading spinner while fetching session messages ── */}
             {messagesLoading ? (
               <div className="flex flex-col items-center justify-center py-32 gap-3">
                 <div className="flex items-end gap-1 h-7">
@@ -325,12 +431,7 @@ export default function ChatPage({
                 <p className="text-sm text-gray-400 dark:text-gray-500">
                   Loading messages…
                 </p>
-                <style>{`
-                  @keyframes chatLoadBar {
-                    0%, 100% { transform: scaleY(0.25); opacity: 0.35; }
-                    50%      { transform: scaleY(1);    opacity: 1; }
-                  }
-                `}</style>
+                <style>{`@keyframes chatLoadBar { 0%,100%{transform:scaleY(.25);opacity:.35} 50%{transform:scaleY(1);opacity:1} }`}</style>
               </div>
             ) : messages.length === 0 ? (
               <div className="text-center py-8 sm:py-12 px-4">
@@ -408,95 +509,85 @@ export default function ChatPage({
                   <ChatMessage key={message._id || index} message={message} />
                 ))
             )}
-
             <div ref={messagesEndRef} />
           </div>
         </div>
 
-        {/* Input Area */}
+        {/* ── Input bar ── */}
         <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 sm:px-4 py-3 sm:py-4 safe-area-bottom transition-colors">
-          <div className="max-w-4xl mx-auto">
-            {/* Document filter banner */}
-            {activeDocFilter && (
-              <div className="flex items-center justify-between gap-2 mb-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-violet-500 dark:text-violet-400 text-sm flex-shrink-0">
-                    📄
-                  </span>
-                  <span className="text-xs text-violet-700 dark:text-violet-300 truncate">
-                    Chatting with:{" "}
-                    <span className="font-medium">
-                      {activeDocFilter.title.length > 60
-                        ? activeDocFilter.title.slice(0, 60) + "…"
-                        : activeDocFilter.title}
-                    </span>
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveDocFilter(null)}
-                  className="flex-shrink-0 text-xs text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-200 font-medium whitespace-nowrap"
-                >
-                  ✕ Clear
-                </button>
-              </div>
-            )}
+          <div className="max-w-4xl mx-auto space-y-2">
+            {/* Compare / single-doc active filter banner */}
+            {filterBar()}
 
+            {/* Main form — vertical on mobile, horizontal on desktop */}
             <form
               onSubmit={handleSendMessage}
-              className="flex flex-col sm:flex-row gap-2 sm:gap-4"
+              className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
             >
-              <div className="flex items-center gap-2 flex-1">
+              {/* Artifacts pill — full width on mobile, auto width on desktop */}
+              <div className="w-full sm:w-auto sm:flex-shrink-0">
+                <ArtifactsMenu
+                  docs={recentDocs}
+                  activeFilter={activeDocFilter}
+                  compareFilters={compareFilters}
+                  onSelect={handleArtifactSelect}
+                  onRemoveDoc={handleRemoveDoc}
+                />
+              </div>
+
+              {/* Input pill — full width, paperclip + text + send */}
+              <div className="flex flex-1 items-center gap-1 rounded-full border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 pl-1 pr-2 py-1.5 focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-transparent transition-all">
                 <IngestButton
                   sessionId={sessionId}
                   onSummaryReady={handleIngestResult}
                   disabled={loading}
                 />
+
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask about research, or use 📎 to summarize a document..."
-                  className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-transparent transition-colors"
+                  placeholder={inputPlaceholder}
+                  className="flex-1 min-w-0 bg-transparent text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
                   disabled={loading}
                   autoFocus
                 />
-              </div>
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                className="px-4 sm:px-6 py-2.5 sm:py-3 bg-primary-600 dark:bg-primary-700 text-white rounded-lg hover:bg-primary-700 dark:hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-sm sm:text-base active:scale-95 flex items-center justify-center gap-2"
-              >
-                <span>Send</span>
-                <svg
-                  className="w-4 h-4 rotate-90"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+
+                <button
+                  type="submit"
+                  disabled={loading || !input.trim()}
+                  className="flex-shrink-0 p-1.5 rounded-full transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                  />
-                </svg>
-              </button>
+                  {compareFilters?.length === 2 ? (
+                    <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-violet-600 dark:text-violet-400">
+                      ⚖️ Compare
+                    </span>
+                  ) : (
+                    <svg
+                      viewBox="0 0 24 24"
+                      className={`w-5 h-5 transition-colors ${input.trim() && !loading ? "text-primary-600 dark:text-primary-400" : "text-gray-400 dark:text-gray-600"}`}
+                    >
+                      <polygon points="5,3 19,12 5,21" fill="currentColor" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </form>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 mt-3 text-xs text-gray-500">
+            {/* Footer */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-4 pt-1 text-xs text-gray-400 dark:text-gray-500">
               <p className="text-center px-2">
                 ⚠️ This tool is for research purposes only and does not provide
                 medical advice. Always verify information with trusted sources.
               </p>
-              <span className="hidden sm:inline text-gray-300">•</span>
-              <p className="text-center">
+              <span className="hidden sm:inline">•</span>
+              <p className="text-center whitespace-nowrap">
                 Built with <span className="text-red-500">❤️</span> by{" "}
                 <a
                   href="https://www.linkedin.com/in/Adarsh-Raj04"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium text-primary-600 hover:text-primary-700 hover:underline"
+                  className="font-medium text-primary-600 dark:text-primary-400 hover:underline"
                 >
                   Adarsh Raj
                 </a>
@@ -505,7 +596,6 @@ export default function ChatPage({
           </div>
         </div>
       </div>
-
       <DisclaimerModal
         isOpen={showDisclaimer}
         onClose={() => setShowDisclaimer(false)}

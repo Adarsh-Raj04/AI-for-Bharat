@@ -129,8 +129,27 @@ export default function ChatMessage({ message }) {
             className={`prose prose-sm max-w-none ${isUser ? "prose-invert" : "dark:prose-invert"}`}
           >
             {isUser ? (
-              <div className="whitespace-pre-wrap text-sm sm:text-base">
-                {message.content}
+              <div>
+                {/* Compare context badge — shown when message was sent in compare mode */}
+                {message.compare_docs?.length === 2 && (
+                  <div className="flex items-center gap-1.5 mb-2 text-xs text-primary-200 dark:text-primary-300 opacity-80">
+                    <span>⚖️</span>
+                    <span className="truncate">
+                      {message.compare_docs[0].title.length > 25
+                        ? message.compare_docs[0].title.slice(0, 25) + "…"
+                        : message.compare_docs[0].title}
+                    </span>
+                    <span className="opacity-60">vs</span>
+                    <span className="truncate">
+                      {message.compare_docs[1].title.length > 25
+                        ? message.compare_docs[1].title.slice(0, 25) + "…"
+                        : message.compare_docs[1].title}
+                    </span>
+                  </div>
+                )}
+                <div className="whitespace-pre-wrap text-sm sm:text-base">
+                  {message.content}
+                </div>
               </div>
             ) : isEmpty ? (
               // No content yet — show animated thinking indicator

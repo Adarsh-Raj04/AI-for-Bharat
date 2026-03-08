@@ -66,12 +66,11 @@ def _docs_to_rerank_payload(docs: List[Document]) -> List[Dict[str, Any]]:
         {
             "text": doc.page_content,
             "score": doc.metadata.get("score", 0.0),
-            # Flatten metadata to top level for reranker
             "source_type": doc.metadata.get("source_type", "unknown"),
             "source_id": doc.metadata.get("source_id", ""),
             "title": doc.metadata.get("title", "Untitled"),
             "url": doc.metadata.get("url", ""),
-            "metadata": doc.metadata,  # Keep full metadata too
+            "metadata": doc.metadata,
         }
         for doc in docs
     ]
@@ -85,13 +84,6 @@ def _docs_to_rerank_payload(docs: List[Document]) -> List[Dict[str, Any]]:
 class LangChainRAGPipeline:
     """
     LangChain-based RAG Pipeline with full observability via LangSmith.
-
-    Features:
-    - Unified LLM interface (OpenAI, Bedrock)
-    - LangSmith tracing for all operations
-    - Prompt template versioning
-    - LCEL chain composition
-    - Error handling and fallbacks
     """
 
     def __init__(self) -> None:
@@ -107,7 +99,6 @@ class LangChainRAGPipeline:
     # ------------------------------------------------------------------
 
     def _configure_langsmith(self) -> None:
-        """Set LangSmith environment variables when tracing is enabled."""
         if not settings.LANGSMITH_TRACING:
             return
         os.environ.update(
@@ -126,20 +117,14 @@ class LangChainRAGPipeline:
         self.intent_classifier = get_intent_classifier()
         self.bias_detector = get_bias_detector()
         self.safety_guardrails = get_safety_guardrails()
-
-        # Phase 2: Intent routing and summarization
-        self.intent_router = None  # Initialized after LLM
-        self.summarization_chain = None  # Initialized after LLM
-
-        # Phase 3: Specialized chains
-        self.comparison_chain = None  # Initialized after LLM
-        self.regulatory_chain = None  # Initialized after LLM
-
-        # Phase 2 Enhanced Services (initialized early, some need LLM later)
-        self.memory = None  # Initialized after LLM
+        self.intent_router = None
+        self.summarization_chain = None
+        self.comparison_chain = None
+        self.regulatory_chain = None
+        self.memory = None
         self.citation_tracker = get_citation_tracker()
         self.cross_encoder_reranker = get_cross_encoder_reranker()
-        self.hybrid_retriever = None  # Initialized after vectorstore
+        self.hybrid_retriever = None
 
     def _initialize_llm(self) -> None:
         try:
@@ -187,7 +172,6 @@ class LangChainRAGPipeline:
                 text_key="text",
             )
 
-            # Phase 2: Initialize hybrid retriever after vectorstore
             from app.services.pinecone_service import get_pinecone_service
             from app.services.embedding_service import get_embedding_service
 
@@ -241,26 +225,11 @@ class LangChainRAGPipeline:
                         "coreference resolution\n"
                         "3. Cite sources using [number] notation (e.g., [1], [2])",
                     )
-                    .replace(
-                        "3. If the context",
-                        "4. If the context",
-                    )
-                    .replace(
-                        "4. Use clear",
-                        "5. Use clear",
-                    )
-                    .replace(
-                        "5. Format",
-                        "6. Format",
-                    )
-                    .replace(
-                        "6. Include",
-                        "7. Include",  # keep numbering consistent
-                    )
-                    .replace(
-                        "7. Be concise",
-                        "8. Be concise",
-                    ),
+                    .replace("3. If the context", "4. If the context")
+                    .replace("4. Use clear", "5. Use clear")
+                    .replace("5. Format", "6. Format")
+                    .replace("6. Include", "7. Include")
+                    .replace("7. Be concise", "8. Be concise"),
                 ),
                 MessagesPlaceholder(variable_name="chat_history"),
                 ("human", "{question}"),
@@ -269,20 +238,13 @@ class LangChainRAGPipeline:
         logger.info("Initialized prompt templates")
 
     def _initialize_chains(self) -> None:
-        # Chains are built dynamically in process_query to avoid duplicate retrieval
-        # Phase 2: Initialize intent router and summarization chain
         self.intent_router = get_intent_router(self.llm)
         self.summarization_chain = get_summarization_chain(self.llm)
-
-        # Phase 3: Initialize specialized chains
         self.comparison_chain = get_comparison_chain(self.llm)
         self.regulatory_chain = get_regulatory_chain(self.llm)
-
-        # Phase 2: Initialize conversational memory with LLM
         self.memory = get_conversational_memory(self.llm)
-
         logger.info(
-            "Chain initialization deferred to query time, Phase 2 & 3 features initialized (including memory)"
+            "Chain initialization deferred to query time, Phase 2 & 3 features initialized"
         )
 
     # ------------------------------------------------------------------
@@ -290,17 +252,10 @@ class LangChainRAGPipeline:
     # ------------------------------------------------------------------
 
     def _fetch_by_pmid(self, pmid: str) -> list:
-        """
-        Fetch all chunks for a specific PMID directly via Pinecone metadata filter.
-        Returns a list of reranker-compatible dicts, or [] if not found.
-        """
+        """Fetch all chunks for a specific PMID via Pinecone metadata filter."""
         try:
-            # Pinecone metadata filter query — no embedding needed
-            # We use a zero vector + filter to do a metadata-only lookup
             print("Fetching by PMID from Pinecone metadata filter:", pmid)
-            import numpy as np
-
-            dummy_vector = [0.0] * 1536  # match your embedding dimension
+            dummy_vector = [0.0] * 1536
 
             results = self.pinecone_index.query(
                 vector=dummy_vector,
@@ -318,7 +273,6 @@ class LangChainRAGPipeline:
                 logger.warning("PMID:%s — no matches in Pinecone metadata filter", pmid)
                 return []
 
-            # Convert to reranker-compatible flat dicts
             docs = []
             for match in results.matches:
                 meta = match.metadata or {}
@@ -355,12 +309,11 @@ class LangChainRAGPipeline:
         query: str,
         top_k: int = None,
         use_enhanced: bool = True,
-        source_filter: str = None,  # ← NEW: source_id string e.g. "PMID:41785024"
+        source_filter: str = None,
     ) -> List[Document]:
         if top_k is None:
             top_k = settings.TOP_K_RESULTS
 
-        # Build Pinecone filter dict if source_filter provided
         filter_dict = {"source_id": {"$eq": source_filter}} if source_filter else None
 
         try:
@@ -372,7 +325,7 @@ class LangChainRAGPipeline:
                     query_embedding=query_embedding,
                     top_k=top_k * 2,
                     use_rrf=True,
-                    filter_dict=filter_dict,  # ← NEW
+                    filter_dict=filter_dict,
                 )
 
                 if results:
@@ -401,7 +354,7 @@ class LangChainRAGPipeline:
                 query_embedding=query_embedding,
                 query_text=query,
                 top_k=top_k,
-                filter_dict=filter_dict,  # ← NEW (pinecone_service already accepts this)
+                filter_dict=filter_dict,
             )
 
             documents = []
@@ -443,30 +396,70 @@ class LangChainRAGPipeline:
         return self._model_name
 
     def _format_chat_history(self, chat_history: List[Dict]) -> List:
-        """Format chat history with Phase 2 memory management"""
+        """Format chat history with Phase 2 memory management."""
         if not chat_history:
             return []
 
-        # Phase 2: Use conversational memory to manage context window
         if self.memory:
             managed_history = self.memory.manage_context_window(
                 chat_history, max_tokens=4000
             )
             formatted = self.memory.format_messages_for_langchain(managed_history)
             logger.info(
-                f"Formatted {len(formatted)} messages (managed from {len(chat_history)} original)"
+                "Formatted %d messages (managed from %d original)",
+                len(formatted),
+                len(chat_history),
             )
             return formatted
 
-        # Fallback to simple formatting
+        # Fallback simple formatting
         messages = []
         for msg in chat_history:
-            role = msg.get("role")
-            content = msg.get("content", "")
-            if role == "user":
+            role = (
+                msg.get("role")
+                if isinstance(msg, dict)
+                else (msg[0] if isinstance(msg, (list, tuple)) else None)
+            )
+            content = (
+                msg.get("content")
+                if isinstance(msg, dict)
+                else (msg[1] if isinstance(msg, (list, tuple)) else "")
+            )
+            if role in ("user", "human"):
                 messages.append(HumanMessage(content=content))
-            elif role == "assistant":
+            elif role in ("assistant", "ai"):
                 messages.append(AIMessage(content=content))
+        return messages
+
+    def _chat_history_to_lc_messages(self, chat_history) -> List:
+        """
+        Convert chat_history in ANY format to proper LangChain message objects.
+        Handles: list of dicts, list of tuples, list of LangChain messages.
+        This prevents MESSAGE_COERCION_FAILURE when streaming.
+        """
+        messages = []
+        for item in chat_history or []:
+            # Already a LangChain message object
+            if isinstance(item, (HumanMessage, AIMessage)):
+                messages.append(item)
+                continue
+
+            # Tuple or list: ("user"/"human"/"assistant", "content")
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                role, content = item[0], item[1]
+            # Dict: {"role": "user", "content": "..."}
+            elif isinstance(item, dict):
+                role = item.get("role", "")
+                content = item.get("content", "")
+            else:
+                continue
+
+            if role in ("user", "human"):
+                messages.append(HumanMessage(content=str(content)))
+            elif role in ("assistant", "ai"):
+                messages.append(AIMessage(content=str(content)))
+            # skip system/unknown
+
         return messages
 
     def _build_citations(
@@ -476,7 +469,6 @@ class LangChainRAGPipeline:
         seen_source_ids = set()
 
         for doc in documents:
-            # ── Extract fields (works for both flat reranker dicts and LangChain Documents) ──
             if isinstance(doc, dict):
                 source_id = doc.get("source_id", "")
                 title = doc.get("title", "Untitled")
@@ -495,15 +487,14 @@ class LangChainRAGPipeline:
                 source_type = metadata.get("source_type", "unknown")
                 pub_date = metadata.get("publication_date") or None
 
-            # ── Dedup by source_id — keep only the highest-ranked chunk per source ──
-            dedup_key = source_id or title  # fall back to title if no source_id
+            dedup_key = source_id or title
             if dedup_key and dedup_key in seen_source_ids:
                 continue
             seen_source_ids.add(dedup_key)
 
             citations.append(
                 {
-                    "number": len(citations) + 1,  # renumber after dedup
+                    "number": len(citations) + 1,
                     "title": title,
                     "url": url,
                     "relevance_score": relevance,
@@ -515,7 +506,6 @@ class LangChainRAGPipeline:
                 }
             )
 
-        # Enrich with usage tracking if available
         if response_text and self.citation_tracker:
             citations = self.citation_tracker.enrich_citations(citations, response_text)
             logger.debug("Enriched %d citations with usage tracking", len(citations))
@@ -530,7 +520,6 @@ class LangChainRAGPipeline:
     ) -> float:
         if not documents:
             return 0.0
-
         top_docs = documents[:3]
         relevance = sum(d.get("relevance_score", 0.0) for d in top_docs) / len(top_docs)
         bias_penalty = bias_analysis.get("bias_score", 0.0) * 0.2
@@ -540,10 +529,7 @@ class LangChainRAGPipeline:
         return max(0.0, min(0.95, confidence))
 
     def _fallback_response(
-        self,
-        query: str,  # noqa: ARG002 — kept for potential future use / logging
-        error: Optional[str] = None,
-        reason: Optional[str] = None,
+        self, query: str, error: Optional[str] = None, reason: Optional[str] = None
     ) -> Dict[str, Any]:
         messages = {
             "blocked": "This query cannot be processed due to safety guidelines.",
@@ -560,8 +546,122 @@ class LangChainRAGPipeline:
         }
 
     # ------------------------------------------------------------------
-    # Singleton
-    # ---------------------------------------------------------------------------
+    # Compare branch — fixed MESSAGE_COERCION_FAILURE
+    # ------------------------------------------------------------------
+
+    def _compare_branch(
+        self,
+        query,
+        compare_filters,
+        chat_history,
+        user_id,
+        session_id,
+        compare_titles=None,
+    ):
+        """
+        Retrieve from two source_ids independently, then stream a structured
+        comparison from the LLM using real document titles.
+        """
+        sid_a, sid_b = compare_filters[0], compare_filters[1]
+
+        docs_a = self._retrieve_documents(query=query, source_filter=sid_a)
+        docs_b = self._retrieve_documents(query=query, source_filter=sid_b)
+
+        # Resolve human-readable names — prefer passed titles, fallback to metadata
+        def _doc_title(docs, passed_title, sid):
+            if passed_title and passed_title.strip():
+                return passed_title.strip()
+            for d in docs:
+                meta = d.metadata if hasattr(d, "metadata") else d.get("metadata", {})
+                t = meta.get("title", "")
+                if t and t != "Untitled":
+                    return t
+            return sid  # last resort: show source_id
+
+        passed_titles = compare_titles or []
+        title_a = _doc_title(
+            docs_a, passed_titles[0] if len(passed_titles) > 0 else None, sid_a
+        )
+        title_b = _doc_title(
+            docs_b, passed_titles[1] if len(passed_titles) > 1 else None, sid_b
+        )
+
+        def _extract_text(docs, max_chars=3000):
+            texts = []
+            for d in docs:
+                if hasattr(d, "page_content"):
+                    texts.append(d.page_content)
+                elif isinstance(d, dict):
+                    texts.append(d.get("page_content") or d.get("text", ""))
+            return "\n\n".join(texts)[:max_chars]
+
+        def _make_citations(docs, number_start):
+            seen, out = set(), []
+            for d in docs:
+                meta = d.metadata if hasattr(d, "metadata") else d.get("metadata", {})
+                sid = meta.get("source_id", "")
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                out.append(
+                    {
+                        "number": number_start + len(out),
+                        "title": meta.get("title", sid),
+                        "url": meta.get("url", ""),
+                        "relevance_score": meta.get("score", 1.0),
+                        "source_type": meta.get("source_type", "document"),
+                        "source_id": sid,
+                    }
+                )
+            return out
+
+        citations = _make_citations(docs_a, 1) + _make_citations(
+            docs_b, len(docs_a) + 1
+        )
+        yield {"type": "citations", "data": citations}
+
+        context_a = _extract_text(docs_a)
+        context_b = _extract_text(docs_b)
+
+        compare_prompt = f"""You are a medical research assistant comparing two research documents.
+
+**{title_a}** — relevant content:
+{context_a or "(no relevant content found)"}
+
+**{title_b}** — relevant content:
+{context_b or "(no relevant content found)"}
+
+User question: {query}
+
+Provide a structured comparison using the actual document names above (not "Document A/B"):
+1. **Key Findings** — what each document says about the topic
+2. **Agreements** — where they align
+3. **Differences** — methodology, conclusions, patient populations, etc.
+4. **Clinical Relevance** — which findings are more applicable and why
+
+Always refer to documents by their actual names: **{title_a}** and **{title_b}**."""
+
+        # ── THE FIX: convert history to proper LangChain message objects ──
+        # Old code did: for role, content in chat_history → dict → llm.stream()
+        # That caused: MESSAGE_COERCION_FAILURE (unexpected message type 'role')
+        lc_messages = self._chat_history_to_lc_messages(chat_history)
+        lc_messages.append(HumanMessage(content=compare_prompt))
+
+        try:
+            for chunk in self.llm.stream(lc_messages):
+                text = chunk.content if hasattr(chunk, "content") else str(chunk)
+                if text:
+                    yield {"type": "text", "data": text}
+        except Exception as e:
+            logger.exception("Compare streaming error")
+            yield {"type": "error", "data": f"Compare failed: {e}"}
+            return
+
+        yield {"type": "metadata", "data": {"confidence": 0.9, "intent": "comparison"}}
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def process_query(
         self,
@@ -572,24 +672,10 @@ class LangChainRAGPipeline:
         session_id=None,
         source_filter=None,
     ) -> Dict[str, Any]:
-        """
-        Process a query through the LangChain RAG pipeline.
-
-        Args:
-            query: User's question.
-            chat_history: Previous conversation messages.
-            use_cache: Whether to use cached embeddings (reserved for future use).
-            user_id: User identifier for tracing.
-            session_id: Session identifier for tracing.
-
-        Returns:
-            Response dict with text, citations, and metadata.
-        """
         start_time = time.time()
         chat_history = chat_history or []
 
         try:
-            # Safety check
             is_safe, block_reason, _safety_meta = self.safety_guardrails.check_query(
                 query
             )
@@ -597,11 +683,9 @@ class LangChainRAGPipeline:
                 logger.warning("Query blocked: %s", block_reason)
                 return self._fallback_response(query, reason="blocked")
 
-            # Intent classification
             intent, intent_confidence, _ = self.intent_classifier.classify(query)
             routing_config = self.intent_classifier.get_routing_config(intent)
 
-            # Retrieve documents (single call, no duplicate traces)
             retrieved_docs = self._retrieve_documents(
                 query,
                 top_k=routing_config.get("top_k", settings.TOP_K_RESULTS),
@@ -612,37 +696,29 @@ class LangChainRAGPipeline:
                 logger.warning("No documents retrieved")
                 return self._fallback_response(query, reason="no_documents")
 
-            # Rerank
             reranked_docs = self.reranker_service.rerank(
                 query=query,
                 documents=_docs_to_rerank_payload(retrieved_docs),
                 top_k=routing_config["rerank_top_k"],
             )
-
-            # Diversity filter
             reranked_docs = apply_diversity_filter(
                 documents=reranked_docs,
                 max_chunks_per_source=2,
                 target_k=routing_config["rerank_top_k"],
             )
 
-            # Bias analysis
             bias_analysis = self.bias_detector.analyze_sources(reranked_docs, query)
-
-            # Phase 2 & 3: Route to specialized chains based on intent
             formatted_context = _format_docs(retrieved_docs)
 
             if intent == QueryIntent.SUMMARIZATION:
                 pmid = self.summarization_chain.extract_pmid_from_query(query)
                 if pmid:
-                    # Direct metadata fetch — bypasses semantic search for exact PMID lookup
                     pmid_docs = self._fetch_by_pmid(pmid)
                     if pmid_docs:
                         response_text = self.summarization_chain.summarize_by_pmid(
                             pmid, pmid_docs
                         )
                     else:
-                        # Fallback: try reranked docs in case it was retrieved semantically
                         response_text = self.summarization_chain.summarize_by_pmid(
                             pmid, reranked_docs
                         )
@@ -658,20 +734,16 @@ class LangChainRAGPipeline:
                     )
 
             elif intent == QueryIntent.COMPARISON:
-                # Phase 3: Comparison chain
                 response_text = self.comparison_chain.compare(query, formatted_context)
 
             elif intent == QueryIntent.REGULATORY_COMPLIANCE:
-                # Phase 3: Regulatory chain
                 response_text = self.regulatory_chain.get_regulatory_info(
                     query, formatted_context
                 )
 
             else:
-                # Use intent-routed chain for other intents
                 if chat_history:
                     formatted_history = self._format_chat_history(chat_history)
-                    # For conversational queries, use conversational prompt
                     chain = (
                         {
                             "context": lambda _: formatted_context,
@@ -683,34 +755,28 @@ class LangChainRAGPipeline:
                         | StrOutputParser()
                     )
                 else:
-                    # Use intent-specific chain
                     chain = self.intent_router.build_routed_chain(
                         intent, formatted_context
                     )
-
-                # Generate response
                 response_text = chain.invoke(query)
 
-            # Phase 2: Build citations with enhanced tracking
             citations = self._build_citations(reranked_docs, response_text)
             confidence = self._calculate_confidence_score(
                 reranked_docs, intent_confidence, bias_analysis
             )
 
-            # Phase 2: Generate citation report
             citation_report = None
             if self.citation_tracker:
                 citation_report = self.citation_tracker.generate_citation_report(
                     response_text, citations
                 )
                 logger.info(
-                    f"Citation accuracy: {citation_report['validation']['accuracy']:.2%}"
+                    "Citation accuracy: %.2f%%",
+                    citation_report["validation"]["accuracy"] * 100,
                 )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.info("Query processed successfully in %dms", elapsed_ms)
-
-            # ------- Phase 2: Build research timeline from citations -------
 
             timeline = build_research_timeline(citations)
 
@@ -725,7 +791,6 @@ class LangChainRAGPipeline:
                 "timeline": timeline,
             }
 
-            # Add citation report if available
             if citation_report:
                 result["citation_report"] = citation_report
 
@@ -742,7 +807,9 @@ class LangChainRAGPipeline:
         use_cache: bool = True,
         user_id=None,
         session_id=None,
-        source_filter=None,  # ← NEW: source_id string e.g. "PMID:41785024"
+        source_filter=None,
+        compare_filters=None,
+        compare_titles=None,  # ← human-readable titles for each compare_filter
     ):
         import time
 
@@ -750,7 +817,19 @@ class LangChainRAGPipeline:
         chat_history = chat_history or []
 
         try:
-            # ── Safety check ──────────────────────────────────────────────
+            # ── Compare mode — short-circuits everything else ──────────────
+            if compare_filters and len(compare_filters) == 2:
+                yield from self._compare_branch(
+                    query,
+                    compare_filters,
+                    chat_history,
+                    user_id,
+                    session_id,
+                    compare_titles=compare_titles,
+                )
+                return
+
+            # ── Safety check ───────────────────────────────────────────────
             is_safe, _block_reason, _safety_meta = self.safety_guardrails.check_query(
                 query
             )
@@ -758,7 +837,7 @@ class LangChainRAGPipeline:
                 yield {"type": "error", "data": "Query blocked by safety guardrails"}
                 return
 
-            # ── Intent classification ─────────────────────────────────────
+            # ── Intent classification ──────────────────────────────────────
             intent, intent_confidence, _ = self.intent_classifier.classify(query)
             routing_config = self.intent_classifier.get_routing_config(intent)
             logger.info(
@@ -768,7 +847,7 @@ class LangChainRAGPipeline:
                 query[:80],
             )
 
-            # ── Retrieve ──────────────────────────────────────────────────
+            # ── Retrieve ───────────────────────────────────────────────────
             retrieved_docs = self._retrieve_documents(
                 query,
                 top_k=routing_config.get("top_k", settings.TOP_K_RESULTS),
@@ -778,7 +857,7 @@ class LangChainRAGPipeline:
                 yield {"type": "error", "data": "No relevant documents found"}
                 return
 
-            # ── Rerank + diversity filter ─────────────────────────────────
+            # ── Rerank + diversity filter ──────────────────────────────────
             reranked_docs = self.reranker_service.rerank(
                 query=query,
                 documents=_docs_to_rerank_payload(retrieved_docs),
@@ -795,13 +874,10 @@ class LangChainRAGPipeline:
             confidence = self._calculate_confidence_score(
                 reranked_docs, intent_confidence, bias_analysis
             )
-
             formatted_context = _format_docs(retrieved_docs)
 
-            # ── Intent routing ────────────────────────────────────────────
+            # ── Intent routing ─────────────────────────────────────────────
             if intent == QueryIntent.SUMMARIZATION:
-                # Summarization chains use invoke() not stream() —
-                # yield the full result as one text chunk
                 pmid = self.summarization_chain.extract_pmid_from_query(query)
                 if pmid:
                     pmid_docs = self._fetch_by_pmid(pmid)
@@ -809,7 +885,6 @@ class LangChainRAGPipeline:
                         logger.info(
                             "PMID fetch returned %d docs for %s", len(pmid_docs), pmid
                         )
-                        # Override citations with the actual fetched doc, not semantic results
                         citations = self._build_citations(pmid_docs)
                         yield {"type": "citations", "data": citations}
                         response_text = self.summarization_chain.summarize_by_pmid(
@@ -849,9 +924,9 @@ class LangChainRAGPipeline:
                 yield {"type": "text", "data": response_text}
 
             else:
-                # General QA — send citations before streaming starts
+                # General QA — stream token by token
                 yield {"type": "citations", "data": citations}
-                # Stream token-by-token for general QA, factual, clinical trial etc.
+
                 if chat_history:
                     formatted_history = self._format_chat_history(chat_history)
                     chain = (
@@ -864,10 +939,6 @@ class LangChainRAGPipeline:
                         | self.llm
                     )
                 else:
-                    chain = self.intent_router.build_routed_chain(
-                        intent, formatted_context
-                    )
-                    # build_routed_chain adds StrOutputParser — rebuild without it for streaming
                     prompt = self.intent_router.get_prompt_for_intent(intent)
                     chain = (
                         {
@@ -889,7 +960,7 @@ class LangChainRAGPipeline:
                         if content:
                             yield {"type": "text", "data": content}
 
-            # ── Final metadata ────────────────────────────────────────────
+            # ── Final metadata ─────────────────────────────────────────────
             elapsed_ms = int((time.time() - start_time) * 1000)
             yield {
                 "type": "metadata",
@@ -913,13 +984,8 @@ class LangChainRAGPipeline:
 _langchain_rag_pipeline: Optional[LangChainRAGPipeline] = None
 
 
-_langchain_rag_pipeline = None
-
-
 def get_langchain_rag_pipeline():
     global _langchain_rag_pipeline
-
     if _langchain_rag_pipeline is None:
         _langchain_rag_pipeline = LangChainRAGPipeline()
-
     return _langchain_rag_pipeline

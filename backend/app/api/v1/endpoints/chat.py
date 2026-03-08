@@ -97,7 +97,26 @@ def _stream_generator(chat_request: ChatRequest, current_user: Dict, db: Session
         yield _sse("error", {"message": e.detail})
         return
 
-    user_msg = Message(session_id=session.id, role="user", content=chat_request.message)
+    # Store compare_docs so ChatMessage can render "Doc A vs Doc B" on reload
+    compare_docs_payload = None
+    if chat_request.compare_filters and chat_request.compare_titles:
+        compare_docs_payload = [
+            {"source_id": sid, "title": title}
+            for sid, title in zip(
+                chat_request.compare_filters, chat_request.compare_titles
+            )
+        ]
+    user_msg = Message(
+        session_id=session.id,
+        role="user",
+        content=chat_request.message,
+    )
+    # compare_docs requires the column to exist in the Message model.
+    # Add it with: compare_docs = Column(JSON, nullable=True)
+    # and run: alembic revision --autogenerate -m "add_compare_docs_to_messages"
+    #          alembic upgrade head
+    if compare_docs_payload and hasattr(Message, "compare_docs"):
+        user_msg.compare_docs = compare_docs_payload
     db.add(user_msg)
     append_message_to_redis(redis_client, session.id, "user", chat_request.message)
     session.total_messages += 1
@@ -122,7 +141,9 @@ def _stream_generator(chat_request: ChatRequest, current_user: Dict, db: Session
             chat_history=chat_history,
             user_id=str(user.id),
             session_id=str(session.id),
-            source_filter=chat_request.source_filter,  # ← threads document filter
+            source_filter=chat_request.source_filter,
+            compare_filters=chat_request.compare_filters,
+            compare_titles=chat_request.compare_titles,  # ← real doc names for prompt
         ):
             chunk_type = chunk.get("type")
             chunk_data = chunk.get("data")

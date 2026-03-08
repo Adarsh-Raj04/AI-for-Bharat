@@ -7,8 +7,10 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str = Field(..., min_length=1, max_length=2000)
     stream: bool = False
-    options: Optional[Dict] = None
     source_filter: Optional[str] = None
+    compare_filters: Optional[list[str]] = None  # [source_id_a, source_id_b]
+    compare_titles: Optional[list[str]] = None  # [title_a, title_b] — used in prompt
+    options: Optional[Dict] = None
 
 
 class Citation(BaseModel):

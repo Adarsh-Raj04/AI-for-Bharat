@@ -21,8 +21,9 @@ function App() {
   const [emailVerificationRequired, setEmailVerificationRequired] =
     useState(false);
   const [messages, setMessages] = useState([]);
-  const [currentSessionName, setCurrentSessionName] = useState(null); // ← NEW
-  const [messagesLoading, setMessagesLoading] = useState(false); // ← NEW
+  const [currentSessionName, setCurrentSessionName] = useState(null);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [newChatTrigger, setNewChatTrigger] = useState(0); // ← incremented to force ChatPage reset
 
   useEffect(() => {
     const validateAuth = async () => {
@@ -55,7 +56,8 @@ function App() {
   const handleNewSession = (sessionId) => {
     setCurrentSessionId(sessionId);
     setMessages([]);
-    setCurrentSessionName(null); // ← reset name on new chat
+    setCurrentSessionName(null);
+    setNewChatTrigger((prev) => prev + 1); // ← signal ChatPage to reset even if sessionId stays null
   };
 
   if (
@@ -84,16 +86,18 @@ function App() {
                   onNewSession={handleNewSession}
                   messages={messages}
                   sessionId={currentSessionId}
-                  currentSessionName={currentSessionName} // ← NEW
-                  onSessionNameChange={setCurrentSessionName} // ← NEW
-                  messagesLoading={messagesLoading} // ← NEW
+                  currentSessionName={currentSessionName}
+                  onSessionNameChange={setCurrentSessionName}
+                  messagesLoading={messagesLoading}
+                  newChatTrigger={newChatTrigger}
                 >
                   <ChatPage
                     sessionId={currentSessionId}
                     onSessionChange={setCurrentSessionId}
                     onMessagesChange={setMessages}
-                    onSessionNameChange={setCurrentSessionName} // ← NEW
-                    onMessagesLoadingChange={setMessagesLoading} // ← NEW
+                    onSessionNameChange={setCurrentSessionName}
+                    onMessagesLoadingChange={setMessagesLoading}
+                    newChatTrigger={newChatTrigger}
                   />
                 </Layout>
               ) : (
