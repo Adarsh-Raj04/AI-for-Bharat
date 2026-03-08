@@ -113,7 +113,7 @@ export default function Navbar({
 
           <div className="flex items-center">
             <img
-              src="/logo.png"
+              src="../../logo.png"
               alt="MedResearch AI"
               className="h-7 sm:h-8 md:h-9 lg:h-10 max-w-[160px] w-auto object-contain"
             />
