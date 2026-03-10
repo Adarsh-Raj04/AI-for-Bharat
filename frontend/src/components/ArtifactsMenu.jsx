@@ -107,7 +107,7 @@ export default function ArtifactsMenu({
     triggerLabel = (
       <span className="flex items-center gap-1.5">
         <FileText className="w-3.5 h-3.5" />
-        Uploaded artifacts
+        Research Papers
       </span>
     );
   }
@@ -158,7 +158,7 @@ export default function ArtifactsMenu({
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Uploaded Artifacts
+              Research Papers
             </span>
             <button
               type="button"
@@ -177,7 +177,8 @@ export default function ArtifactsMenu({
           {/* Compare hint */}
           {compareMode && (
             <div className="px-4 py-2 bg-violet-50 dark:bg-violet-900/20 border-b border-violet-100 dark:border-violet-800/40 text-xs text-violet-600 dark:text-violet-300">
-              {compareSelection.length === 0 && "Select 2 documents to compare"}
+              {compareSelection.length === 0 &&
+                "Select 2 Research Papers to compare"}
               {compareSelection.length === 1 &&
                 `✓ ${compareSelection[0].title.slice(0, 30)}… — pick one more`}
               {compareSelection.length === 2 && "Both selected"}
@@ -187,7 +188,7 @@ export default function ArtifactsMenu({
           {/* Doc list */}
           {docs.length === 0 ? (
             <div className="px-4 py-6 text-center text-xs text-gray-400">
-              No documents yet.
+              No Research Papers yet.
               <br />
               Use 📎 to upload a PDF or DOCX.
             </div>
@@ -236,8 +237,8 @@ export default function ArtifactsMenu({
           )}
 
           <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-400">
-            Uploaded documents are stored for 24 hours and then automatically
-            removed.
+            Uploaded Research Papers are stored for 24 hours and then
+            automatically removed.
           </div>
         </div>
       )}

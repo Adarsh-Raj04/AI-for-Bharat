@@ -399,7 +399,7 @@ export default function ChatPage({
 
   const inputPlaceholder =
     compareFilters?.length === 2
-      ? "Ask a question to compare both documents…"
+      ? "Ask a question to compare both Research Papers…"
       : activeDocFilter
         ? "Ask about this document…"
         : "Upload a research paper or ask a question...";
