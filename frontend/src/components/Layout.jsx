@@ -1,22 +1,20 @@
 import { useState, useEffect } from "react";
+import { Outlet, useNavigate, useParams } from "react-router-dom";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
 import React from "react";
 
 export default function Layout({
-  children,
-  currentSessionId,
-  onSessionSelect,
-  onNewSession,
   messages,
-  sessionId,
-  currentSessionName, // ← NEW: threaded from App → Sidebar
-  onSessionNameChange, // ← NEW: threaded from App → Sidebar
-  messagesLoading, // ← NEW: threaded from App → Sidebar
+  currentSessionName,
+  onSessionNameChange,
+  messagesLoading,
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const messageCount = messages?.length || 0;
+  const navigate = useNavigate();
+  const { sessionId: currentSessionId } = useParams();
 
   useEffect(() => {
     const checkMobile = () => {
@@ -31,10 +29,8 @@ export default function Layout({
 
   const handleToggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
-  // Add this inside Layout.jsx if you want extra-smooth focus transitions
   useEffect(() => {
     if (!sidebarOpen || !isMobile) {
-      // Small delay to allow layout transition to finish
       setTimeout(() => {
         document.querySelector('input[type="text"]')?.focus();
       }, 100);
@@ -42,12 +38,12 @@ export default function Layout({
   }, [sidebarOpen, isMobile]);
 
   const handleSessionSelect = (sid) => {
-    onSessionSelect?.(sid);
+    navigate(`/chat/${sid}`);
     if (isMobile) setSidebarOpen(false);
   };
 
-  const handleNewSession = (sid) => {
-    onNewSession?.(sid);
+  const handleNewSession = () => {
+    navigate("/");
     if (isMobile) setSidebarOpen(false);
   };
 
@@ -57,7 +53,7 @@ export default function Layout({
         onToggleSidebar={handleToggleSidebar}
         sidebarOpen={sidebarOpen}
         messages={messages}
-        sessionId={sessionId}
+        sessionId={currentSessionId}
       />
 
       {isMobile && sidebarOpen && (
@@ -71,13 +67,13 @@ export default function Layout({
         <Sidebar
           isOpen={sidebarOpen}
           currentSessionId={currentSessionId}
-          currentSessionName={currentSessionName} // ← NEW
+          currentSessionName={currentSessionName}
           onSessionSelect={handleSessionSelect}
           onNewSession={handleNewSession}
           isMobile={isMobile}
           liveMessageCount={messageCount}
-          messagesLoading={messagesLoading} // ← NEW
-          onSessionNameChange={onSessionNameChange} // ← NEW
+          messagesLoading={messagesLoading}
+          onSessionNameChange={onSessionNameChange}
         />
 
         <main
@@ -85,7 +81,7 @@ export default function Layout({
             !isMobile && sidebarOpen ? "md:ml-64" : "ml-0"
           }`}
         >
-          {children}
+          <Outlet />
         </main>
       </div>
     </div>

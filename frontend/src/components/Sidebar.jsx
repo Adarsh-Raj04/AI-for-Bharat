@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useNavigate } from "react-router-dom";
 import { Trash2 } from "lucide-react";
+import { toast } from "react-toastify";
 import api from "../services/api";
 
 export default function Sidebar({
@@ -12,16 +14,17 @@ export default function Sidebar({
   isMobile,
   liveMessageCount,
   messagesLoading,
-  onSessionNameChange, // ← called by ChatPage after auto-rename
+  onSessionNameChange,
 }) {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const [pendingSessionId, setPendingSessionId] = useState(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null); // ← inline delete confirm
-  const renameInputRef = useRef(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const renameInputRef = useRef(null);
+  const navigate = useNavigate();
 
   const {
     getAccessTokenSilently,
@@ -59,7 +62,6 @@ export default function Sidebar({
     setSessions((prev) => {
       const exists = prev.some((s) => s.id === currentSessionId);
       if (exists) {
-        // Update name in place if it changed
         return prev.map((s) =>
           s.id === currentSessionId && currentSessionName
             ? { ...s, session_name: currentSessionName }
@@ -110,7 +112,7 @@ export default function Sidebar({
   const createNewSession = () => {
     setPendingSessionId("new");
     setConfirmDeleteId(null);
-    if (onNewSession) onNewSession(null);
+    onNewSession?.();
   };
 
   const handleSessionClick = (sessionId) => {
@@ -167,33 +169,41 @@ export default function Sidebar({
     setConfirmDeleteId((prev) => (prev === sessionId ? null : sessionId));
   };
 
-  const confirmDelete = async (e, sessionId) => {
+  const confirmDelete = (e, sessionId) => {
     e.stopPropagation();
 
-    try {
-      setDeletingId(sessionId); // ← start loading
+    const sessionName =
+      sessions.find((s) => s.id === sessionId)?.session_name || "Chat";
+    const label =
+      sessionName.length > 30 ? sessionName.slice(0, 30) + "…" : sessionName;
 
+    setConfirmDeleteId(null);
+    setDeletingId(sessionId);
+
+    // The promise that does the actual work
+    const deletePromise = (async () => {
       const token = await getAccessTokenSilently();
-
       await api.delete(`/sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // small UX delay so spinner is visible
-      await new Promise((r) => setTimeout(r, 100));
-
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      setConfirmDeleteId(null);
 
       if (currentSessionId === sessionId) {
-        onNewSession?.(null);
+        navigate("/");
+        onNewSession?.();
       }
-    } catch (error) {
-      console.error("Failed to delete session:", error);
-      setConfirmDeleteId(null);
-    } finally {
-      setDeletingId(null); // ← stop loading
-    }
+    })();
+
+    // toast.promise tracks pending → success / error automatically
+    toast.promise(deletePromise, {
+      pending: `Deleting "${label}"…`,
+      success: `"${label}" deleted successfully`,
+      error: `Failed to delete "${label}"`,
+    });
+
+    // Clean up local state once settled
+    deletePromise.finally(() => setDeletingId(null));
   };
 
   const cancelDelete = (e) => {
@@ -273,8 +283,7 @@ export default function Sidebar({
                         className="flex-1 text-sm px-2 py-1 rounded border dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
                       />
                     </div>
-                  ) : /* ── Delete confirm ── */
-                  isConfirmingDelete ? (
+                  ) : isConfirmingDelete ? (
                     deletingId === session.id ? (
                       <div
                         className="px-3 py-2 flex items-center gap-2 text-xs text-gray-500"
@@ -337,7 +346,7 @@ export default function Sidebar({
                         </div>
                       </div>
 
-                      {/* Hover actions — rename + delete */}
+                      {/* Hover actions */}
                       {!isFetching && !isDeleting && (
                         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 ml-1 flex-shrink-0 transition-opacity">
                           <span

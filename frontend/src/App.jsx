@@ -13,17 +13,17 @@ import LoadingSpinner from "./components/LoadingSpinner";
 import EmailVerificationRequired from "./components/EmailVerificationRequired";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import api from "./services/api";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 function App() {
   const { isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
-  const [currentSessionId, setCurrentSessionId] = useState(null);
   const [authValidated, setAuthValidated] = useState(false);
   const [emailVerificationRequired, setEmailVerificationRequired] =
     useState(false);
   const [messages, setMessages] = useState([]);
   const [currentSessionName, setCurrentSessionName] = useState(null);
   const [messagesLoading, setMessagesLoading] = useState(false);
-  const [newChatTrigger, setNewChatTrigger] = useState(0); // ← incremented to force ChatPage reset
 
   useEffect(() => {
     const validateAuth = async () => {
@@ -47,19 +47,6 @@ function App() {
     validateAuth();
   }, [isAuthenticated, getAccessTokenSilently]);
 
-  const handleSessionSelect = (sessionId) => {
-    setCurrentSessionId(sessionId);
-    setMessages([]);
-    setCurrentSessionName(null); // ← reset name on switch
-  };
-
-  const handleNewSession = (sessionId) => {
-    setCurrentSessionId(sessionId);
-    setMessages([]);
-    setCurrentSessionName(null);
-    setNewChatTrigger((prev) => prev + 1); // ← signal ChatPage to reset even if sessionId stays null
-  };
-
   if (
     isLoading ||
     (isAuthenticated && !authValidated && !emailVerificationRequired)
@@ -71,9 +58,18 @@ function App() {
     return <EmailVerificationRequired />;
   }
 
+  const chatElement = (
+    <ChatPage
+      onMessagesChange={setMessages}
+      onSessionNameChange={setCurrentSessionName}
+      onMessagesLoadingChange={setMessagesLoading}
+    />
+  );
+
   return (
     <ThemeProvider>
       <Router>
+        <ToastContainer position="top-center" autoClose={3000} />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
@@ -81,30 +77,19 @@ function App() {
             element={
               isAuthenticated ? (
                 <Layout
-                  currentSessionId={currentSessionId}
-                  onSessionSelect={handleSessionSelect}
-                  onNewSession={handleNewSession}
                   messages={messages}
-                  sessionId={currentSessionId}
                   currentSessionName={currentSessionName}
                   onSessionNameChange={setCurrentSessionName}
                   messagesLoading={messagesLoading}
-                  newChatTrigger={newChatTrigger}
-                >
-                  <ChatPage
-                    sessionId={currentSessionId}
-                    onSessionChange={setCurrentSessionId}
-                    onMessagesChange={setMessages}
-                    onSessionNameChange={setCurrentSessionName}
-                    onMessagesLoadingChange={setMessagesLoading}
-                    newChatTrigger={newChatTrigger}
-                  />
-                </Layout>
+                />
               ) : (
                 <Navigate to="/login" replace />
               )
             }
-          />
+          >
+            <Route index element={chatElement} />
+            <Route path="chat/:sessionId" element={chatElement} />
+          </Route>
         </Routes>
       </Router>
     </ThemeProvider>

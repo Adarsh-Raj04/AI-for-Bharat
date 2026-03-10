@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useParams, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import ChatMessage from "../components/ChatMessage";
 import DisclaimerModal from "../components/DisclaimerModal";
@@ -12,20 +13,19 @@ import {
 } from "../services/recentDocs";
 
 export default function ChatPage({
-  sessionId,
-  onSessionChange,
   onMessagesChange,
   onSessionNameChange,
   onMessagesLoadingChange,
 }) {
+  const { sessionId } = useParams();
+  const navigate = useNavigate();
+
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   // ── Doc filter state ─────────────────────────────────────────────────────
-  // Single mode: activeDocFilter = { source_id, title } | null
-  // Compare mode: compareFilters = [{ source_id, title }, { source_id, title }] | null
   const [activeDocFilter, setActiveDocFilter] = useState(null);
   const [compareFilters, setCompareFilters] = useState(null);
   const [recentDocs, setRecentDocs] = useState(() => getRecentDocs());
@@ -35,6 +35,14 @@ export default function ChatPage({
   const { getAccessTokenSilently } = useAuth0();
   const isStreamingRef = useRef(false);
   const sessionAssignedRef = useRef(false);
+
+  // ── Navigate to new session URL ───────────────────────────────────────────
+  const handleSessionChange = (newSessionId) => {
+    if (newSessionId && newSessionId !== sessionId) {
+      sessionAssignedRef.current = true;
+      navigate(`/chat/${newSessionId}`, { replace: !sessionId });
+    }
+  };
 
   useEffect(() => {
     checkDisclaimerStatus();
@@ -155,10 +163,7 @@ export default function ChatPage({
       },
     ]);
 
-    if (session_id) {
-      sessionAssignedRef.current = true;
-      onSessionChange?.(session_id);
-    }
+    if (session_id) handleSessionChange(session_id);
     if (session_name) onSessionNameChange?.(session_name);
   };
 
@@ -182,7 +187,6 @@ export default function ChatPage({
     if (!input.trim() || loading) return;
 
     const placeholderId = `streaming-${Date.now()}`;
-    // Snapshot compare context — stored on message so it survives session reload
     const compareDocs = compareFilters ? [...compareFilters] : null;
 
     updateMessages((prev) => [
@@ -231,7 +235,6 @@ export default function ChatPage({
         compare_filters: compareFilters
           ? compareFilters.map((d) => d.source_id)
           : null,
-        // Human-readable titles so backend uses real names in the comparison prompt
         compare_titles: compareFilters
           ? compareFilters.map((d) => d.title)
           : null,
@@ -276,10 +279,7 @@ export default function ChatPage({
 
           switch (eventType) {
             case "session":
-              if (onSessionChange && payload.session_id) {
-                sessionAssignedRef.current = true;
-                onSessionChange(payload.session_id);
-              }
+              if (payload.session_id) handleSessionChange(payload.session_id);
               break;
             case "citations":
               patchPlaceholder({
@@ -298,10 +298,7 @@ export default function ChatPage({
                 intent: payload.intent,
                 streaming: false,
               });
-              if (onSessionChange && payload.session_id) {
-                sessionAssignedRef.current = true;
-                onSessionChange(payload.session_id);
-              }
+              if (payload.session_id) handleSessionChange(payload.session_id);
               break;
             case "rename":
               if (payload.session_name)
@@ -516,15 +513,12 @@ export default function ChatPage({
         {/* ── Input bar ── */}
         <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 sm:px-4 py-3 sm:py-4 safe-area-bottom transition-colors">
           <div className="max-w-4xl mx-auto space-y-2">
-            {/* Compare / single-doc active filter banner */}
             {filterBar()}
 
-            {/* Main form — vertical on mobile, horizontal on desktop */}
             <form
               onSubmit={handleSendMessage}
               className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
             >
-              {/* Artifacts pill — full width on mobile, auto width on desktop */}
               <div className="w-full sm:w-auto sm:flex-shrink-0">
                 <ArtifactsMenu
                   docs={recentDocs}
@@ -535,7 +529,6 @@ export default function ChatPage({
                 />
               </div>
 
-              {/* Input pill — full width, paperclip + text + send */}
               <div className="flex flex-1 items-center gap-1 rounded-full border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 pl-1 pr-2 py-1.5 focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-transparent transition-all">
                 <IngestButton
                   sessionId={sessionId}
