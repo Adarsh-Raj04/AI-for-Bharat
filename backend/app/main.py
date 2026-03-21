@@ -14,7 +14,7 @@ load_dotenv()  # Load environment variables from .env file
 
 
 app = FastAPI(
-    title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
+    title=settings.PROJECT_NAME,version="2.0.0", root_path="/medresearch"
 )
 
 # Set up rate limiter

@@ -70,7 +70,7 @@ jobs:
             docker run -d \
               --name medresearch \
               --restart unless-stopped \
-              -p 127.0.0.1:8081:8081 \
+              -p 127.0.0.1:8080:8080 \
               --env-file ~/app/medresearch/backend/.env \
               ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
 
