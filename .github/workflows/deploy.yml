@@ -1,4 +1,4 @@
-name: Deploy Mnemo
+name: Deploy MedResearch
 
 on:
   workflow_dispatch:
@@ -63,15 +63,15 @@ jobs:
             docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
 
             echo "🛑 Stop old container..."
-            docker stop mnemo || true
-            docker rm mnemo || true
+            docker stop medresearch || true
+            docker rm medresearch || true
 
             echo "🚀 Start new container..."
             docker run -d \
-              --name mnemo \
+              --name medresearch \
               --restart unless-stopped \
               -p 127.0.0.1:8081:8081 \
-              --env-file ~/app/mnemo/backend/.env \
+              --env-file ~/app/medresearch/backend/.env \
               ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
 
             echo "🧹 Cleanup..."
